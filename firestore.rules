@@ -1,13 +1,84 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function email() {
+      return request.auth.token.email.lower();
+    }
     function isMember() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in get(/databases/$(database)/documents/households/family).data.members;
+        && email() in get(/databases/$(database)/documents/households/family).data.members;
     }
-    match /households/family/{document=**} {
-      allow read, write: if isMember();
+    function incoming() {
+      return request.resource.data;
+    }
+    function validMoney(d) {
+      return d.amount is int && d.amount > 0 && d.amount <= 99999999999
+        && d.get('currency', 'CAD') in ['CAD', 'INR'];
+    }
+    function shortText(value, max) {
+      return value is string && value.size() <= max;
+    }
+
+    match /households/family {
+      // The member list is managed in the Firebase console only.
+      allow read: if isMember();
+      allow write: if false;
+
+      match /entries/{entryId} {
+        function validEntry(d) {
+          return d.keys().hasOnly(['type', 'amount', 'currency', 'category', 'note', 'scope', 'by', 'date', 'deleted', 'clientCreatedAt', 'createdAt', 'updatedAt'])
+            && d.get('type', 'expense') in ['expense', 'income']
+            && validMoney(d)
+            && shortText(d.category, 30)
+            && shortText(d.get('note', ''), 120)
+            && d.scope in ['mine', 'shared']
+            && d.by == email()
+            && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && d.deleted is bool
+            && (!('clientCreatedAt' in d) || d.clientCreatedAt is number);
+        }
+        allow read: if isMember();
+        allow create: if isMember() && validEntry(incoming()) && incoming().deleted == false;
+        allow update: if isMember() && resource.data.by == email() && validEntry(incoming());
+        allow delete: if false; // soft delete only, so Undo always works
+      }
+
+      match /bills/{billId} {
+        function validBill(d) {
+          return d.keys().hasOnly(['name', 'amount', 'currency', 'dueDay', 'scope', 'by', 'paidMonths', 'startMonth', 'deleted', 'createdAt', 'updatedAt'])
+            && shortText(d.name, 40) && d.name.size() > 0
+            && validMoney(d)
+            && d.dueDay is int && d.dueDay >= 1 && d.dueDay <= 31
+            && d.scope in ['mine', 'shared']
+            && d.paidMonths is list && d.paidMonths.size() <= 60
+            && d.deleted is bool;
+        }
+        allow read: if isMember();
+        allow create: if isMember() && validBill(incoming()) && incoming().by == email() && incoming().deleted == false;
+        // The owner edits everything; the other person may only tick a shared bill as paid.
+        allow update: if isMember() && validBill(incoming()) && incoming().by == resource.data.by
+          && (resource.data.by == email()
+            || (resource.data.scope == 'shared'
+              && incoming().diff(resource.data).affectedKeys().hasOnly(['paidMonths', 'updatedAt'])));
+        allow delete: if false;
+      }
+
+      match /profiles/{profileEmail} {
+        function validProfile(d) {
+          return d.keys().hasOnly(['name', 'homeCurrency', 'displayCurrency', 'monthlyBudget', 'payFrequency', 'payAnchor', 'updatedAt'])
+            && (!('name' in d) || (shortText(d.name, 40) && d.name.size() > 0))
+            && (!('homeCurrency' in d) || d.homeCurrency in ['CAD', 'INR'])
+            && (!('displayCurrency' in d) || d.displayCurrency in ['CAD', 'INR'])
+            && (!('monthlyBudget' in d) || (d.monthlyBudget is int && d.monthlyBudget >= 0 && d.monthlyBudget <= 99999999999))
+            && (!('payFrequency' in d) || d.payFrequency == null || d.payFrequency in ['biweekly', 'monthly'])
+            && (!('payAnchor' in d) || d.payAnchor == null || (d.payAnchor is string && d.payAnchor.size() == 10));
+        }
+        allow read: if isMember();
+        allow create, update: if isMember() && profileEmail == email() && validProfile(incoming());
+        allow delete: if false;
+      }
     }
   }
 }

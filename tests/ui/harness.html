@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/public/">
+<link rel="stylesheet" href="css/app.css">
+<title>Tally</title>
+</head>
+<body>
+<div id="offline" class="banner" role="status" hidden style="position:sticky;top:0;z-index:30;border-radius:0;justify-content:center">You’re offline. Changes will sync when you’re back online.</div>
+<main id="app" aria-live="polite"></main>
+<nav id="tabs" aria-label="Main" hidden></nav>
+<div id="backdrop" class="backdrop" hidden></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1" hidden></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module">
+  import { startApp } from '/public/js/app.js';
+  import { createMockBackend } from '/tests/ui/mock-backend.js';
+  const backend = createMockBackend(window.__TALLY_MOCK__ ?? {});
+  window.__mock = backend.control;
+  window.__app = startApp(backend);
+</script>
+</body>
+</html>
