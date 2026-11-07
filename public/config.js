@@ -14,4 +14,4 @@ export const googleWebClientId = '178497882216-itf6oiffbtvjvp2qh0o56jn39ovm6jf2.
 
 // Web Push public key (VAPID). Public by design: it lets the browser trust messages signed with the matching private key,
 // which lives only in Vercel as VAPID_PRIVATE_KEY.
-export const vapidPublicKey = 'BCRyXb3A-_I8X13WgcIXpXAa1_mp1HE2qMSm7T896xMwlsceSqpm0LEx9fmJjqSdi6sMqsiY7RIp78v8S5zrZO4';
+export const vapidPublicKey = 'BFCHpkClbgADL10tf_h-O-w-l7gF6ElMdZ5EJT2fwiTKHn538LFdsNDB2AgHVlBzHoCAOS1_DqgnYIb6uWeP8pY';
