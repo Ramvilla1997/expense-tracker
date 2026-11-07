@@ -1,8 +1,8 @@
 // Tally service worker: network-first app shell with a short timeout, cached Firebase SDK,
 // so the app opens offline and every deploy reaches phones on the next open.
-const VERSION = 'tally-v13';
+const VERSION = 'tally-v14';
 const SHELL = [
-  './', './index.html', './css/app.css', './config.js', './manifest.json', './icon.svg', './icon-192.png', './apple-touch-icon.png',
+  './', './index.html', './css/app.css', './config.js', './manifest.json', './icon.svg', './icon-192.png', './badge-96.png', './apple-touch-icon.png',
   './fonts/jakarta-latin.woff2', './fonts/jakarta-latin-ext.woff2',
   './js/main.js', './js/app.js', './js/backend/firebase.js', './js/ui/views.js', './js/ui/sheets.js', './js/ui/icons.js',
   './js/core/money.js', './js/core/keypad.js', './js/core/dates.js', './js/core/entries.js', './js/core/budget.js',
@@ -77,7 +77,7 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     tag: data.tag || 'tally',
     icon: './icon-192.png',
-    badge: './icon-192.png',
+    badge: './badge-96.png', // white silhouette: Android draws it in the status bar
     data: { route: 'plan' },
   }));
 });
