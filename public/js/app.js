@@ -622,6 +622,8 @@ export function startApp(backend, options = {}) {
     const d = S.sheet;
     switch (a) {
       case 'sign-in':
+        // Clear the signed-out flag before Google takes over, so the return trip starts on the splash, not the welcome screen.
+        try { storage?.removeItem(SIGNED_OUT_KEY); } catch { /* ignore */ }
         S.signingIn = true; S.authError = ''; render();
         backend.signIn()
           .then((result) => { if (result === 'cancelled' && S.signingIn && !S.user) { S.signingIn = false; render(); } })
@@ -633,7 +635,7 @@ export function startApp(backend, options = {}) {
         try { storage?.setItem(SIGNED_OUT_KEY, '1'); } catch { /* ignore */ }
         S.user = null; S.phase = 'signedOut'; S.signingIn = a === 'switch-account'; render();
         backend.signOut().finally(() => {
-          if (a === 'switch-account') backend.signIn().catch(() => {}).finally(() => location.reload());
+          if (a === 'switch-account') { try { storage?.removeItem(SIGNED_OUT_KEY); } catch { /* ignore */ } backend.signIn().catch(() => {}).finally(() => location.reload()); }
           else { location.hash = '#/home'; location.reload(); }
         });
         break;
