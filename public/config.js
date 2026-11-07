@@ -11,3 +11,7 @@ export const firebaseConfig = {
 // Google Identity Services web client (from Firebase > Authentication > Google > Web SDK configuration).
 // Public identifier, not a secret. Lets Android Chrome show Google's account sheet over the app.
 export const googleWebClientId = '178497882216-itf6oiffbtvjvp2qh0o56jn39ovm6jf2.apps.googleusercontent.com';
+
+// Web Push public key (VAPID). Public by design: it lets the browser trust messages signed with the matching private key,
+// which lives only in Vercel as VAPID_PRIVATE_KEY.
+export const vapidPublicKey = 'BCRyXb3A-_I8X13WgcIXpXAa1_mp1HE2qMSm7T896xMwlsceSqpm0LEx9fmJjqSdi6sMqsiY7RIp78v8S5zrZO4';

@@ -87,6 +87,19 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // This phone's push subscription, keyed by the person's own email. Only the daily job reads all of them.
+      match /push/{subEmail} {
+        function validPush(d) {
+          return d.keys().hasOnly(['endpoint', 'p256dh', 'auth', 'updatedAt'])
+            && d.endpoint is string && d.endpoint.size() <= 1000
+            && d.endpoint.matches('^https://.*')
+            && d.p256dh is string && d.p256dh.size() <= 200
+            && d.auth is string && d.auth.size() <= 100;
+        }
+        allow read, delete: if isMember() && subEmail == email();
+        allow create, update: if isMember() && subEmail == email() && validPush(incoming());
+      }
+
       match /profiles/{profileEmail} {
         function validProfile(d) {
           return d.keys().hasOnly(['name', 'homeCurrency', 'displayCurrency', 'monthlyBudget', 'payFrequency', 'payAnchor', 'updatedAt'])

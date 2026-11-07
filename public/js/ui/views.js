@@ -26,6 +26,7 @@ import { balanceLeft, debtStatus, debtTotals, estimate, visibleDebts } from '../
  * @property {number} hour
  * @property {{month:string, filter:'all'|'personal'|'shared'|'debts'|'income'}} activity
  * @property {{month:string}} shared
+ * @property {{status:'checking'|'off'|'on'|'blocked'|'unsupported', busy:boolean, needsHome:boolean}} push
  * @property {boolean} showInstall
  * @property {string} installHint
  * @property {string} version
@@ -443,6 +444,29 @@ export function sharedView(s) {
   </div>`;
 }
 
+/**
+ * Reminders on this phone. `push` is set by the app: status, whether a call is in flight, and whether iPhone needs the Home Screen first.
+ * @param {{status:'checking'|'off'|'on'|'blocked'|'unsupported', busy:boolean, needsHome:boolean}} push
+ */
+function remindersSection(push) {
+  const busy = push.busy ? 'disabled' : '';
+  const homeHint = push.needsHome ? ' On iPhone, add Tally to your Home Screen first, then open it from there.' : '';
+  const states = {
+    checking: '<p class="muted small" style="margin:0">Checking this phone…</p>',
+    unsupported: `<p class="muted small" style="margin:0">This browser can’t send notifications.${homeHint}</p>`,
+    blocked: '<p class="muted small" style="margin:0">Notifications are blocked for Tally. Allow them in your phone’s settings, then come back here.</p>',
+    off: `<p class="muted small" style="margin:0">Get a heads-up 3 days before a bill or debt minimum is due, and on the day if it’s still unpaid.${homeHint}</p>
+      <button type="button" class="btn" data-action="push-on" ${busy}>Turn on notifications</button>`,
+    on: `<p class="muted small" style="margin:0">On for this phone. Reminders arrive around 8 am Toronto time.</p>
+      <button type="button" class="btn" data-action="push-test" ${busy}>Send a test notification</button>
+      <button type="button" class="btn-link" data-action="push-off" ${busy}>Turn off on this phone</button>`,
+  };
+  return `<section class="card card-pad stack" aria-labelledby="rem-h"><h2 class="h2" id="rem-h">Reminders</h2>
+    ${states[push.status]}
+    <button type="button" class="row" data-action="calendar"><span class="row-main"><span class="ico">${icon('calendar')}</span><span><span class="row-title" style="display:block">Add reminders to my calendar</span><span class="row-meta" style="display:block">A calendar file with each bill and debt minimum</span></span></span></button>
+  </section>`;
+}
+
 /** @param {ViewState} s @param {any} f profile form state */
 export function profileView(s, f) {
   const r = s.rate;
@@ -458,6 +482,7 @@ export function profileView(s, f) {
     <form class="card card-pad stack" data-form="profile" novalidate aria-labelledby="det-h"><h2 class="h2" id="det-h">Your details</h2>
       ${profileFields(f)}
       <button type="submit" class="btn" ${f.saving ? 'disabled' : ''}>Save changes</button></form>
+    ${remindersSection(s.push)}
     <section class="card card-pad stack" aria-labelledby="inst-h"><h2 class="h2" id="inst-h">Install on your phone</h2>
       <p class="muted small" style="margin:0"><strong>iPhone:</strong> open in Safari, tap Share, then “Add to Home Screen”.<br><strong>Android:</strong> open in Chrome, tap ⋮, then “Install app” or “Add to Home screen”.</p></section>
     <section class="card">

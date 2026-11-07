@@ -7,7 +7,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDocFromServer, getDocFromCache,
-  onSnapshot, setDoc, updateDoc, serverTimestamp, arrayUnion, arrayRemove, terminate, clearIndexedDbPersistence,
+  onSnapshot, setDoc, updateDoc, deleteDoc, serverTimestamp, arrayUnion, arrayRemove, terminate, clearIndexedDbPersistence,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const HOUSEHOLD = 'family';
@@ -188,6 +188,24 @@ export function createFirebaseBackend(firebaseConfig, options = {}) {
     /** Atomic paid toggle so two people tapping at once never lose a mark. @param {string} id @param {string} month @param {boolean} paid */
     markBill(id, month, paid) {
       return updateDoc(doc(sub('bills'), id), { paidMonths: paid ? arrayUnion(month) : arrayRemove(month), updatedAt: serverTimestamp() });
+    },
+
+    /** This phone's push subscription, saved under the person's own email so only the daily job reads it. */
+    /** @param {string} email @param {any} subscription */
+    saveSubscription(email, subscription) {
+      const { endpoint, keys } = subscription;
+      return setDoc(doc(sub('push'), email), { endpoint, p256dh: keys.p256dh, auth: keys.auth, updatedAt: serverTimestamp() });
+    },
+
+    /** @param {string} email */
+    deleteSubscription(email) {
+      return deleteDoc(doc(sub('push'), email));
+    },
+
+    /** Proves who is asking when the server sends a test notification. @returns {Promise<string|null>} */
+    async idToken() {
+      const user = auth.currentUser;
+      return user ? user.getIdToken() : null;
     },
 
     /** @param {string} email @param {any} data */

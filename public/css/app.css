@@ -337,3 +337,7 @@ body { background: var(--canvas); font-size: 16px; }
 #tabs { background: #fff; }
 .tab[aria-current="page"] { font-weight: 800; }
 .fab { background: var(--brand); box-shadow: 0 8px 18px -8px rgba(42,38,120,.6); border-radius: 18px; }
+
+/* Text button for secondary actions inside a card. */
+.btn-link { align-self: center; min-height: 44px; padding: 0 8px; background: none; border: 0; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; }
+.btn-link:disabled { opacity: .45; }

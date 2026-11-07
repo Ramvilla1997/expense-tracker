@@ -98,6 +98,17 @@ export function createMockBackend(cfg) {
         coll[id] = { ...coll[id], paidMonths: [...months] };
       });
     },
+    saveSubscription(email, subscription) {
+      st.calls.push({ name: 'push', id: email, subscription });
+      return Promise.resolve();
+    },
+    deleteSubscription(email) {
+      st.calls.push({ name: 'push-delete', id: email });
+      return Promise.resolve();
+    },
+    idToken() {
+      return Promise.resolve(null);
+    },
     saveProfile(email, data) {
       return write('profiles', email, (coll) => { coll[email] = { ...(coll[email] ?? {}), ...data }; });
     },

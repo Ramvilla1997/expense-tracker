@@ -203,6 +203,17 @@ test.describe('Profile', () => {
     expect((await mockState(page)).data.profiles[ME]).toMatchObject({ name: 'Ramakrishna', monthlyBudget: 250050, payFrequency: 'monthly', payAnchor: '2026-11-28' });
   });
 
+  test('reminders: the Reminders section is there and the calendar file lists bills and debt minimums', async ({ page }) => {
+    const bill = { name: 'RBC', amount: 25000, currency: 'CAD', dueDay: 10, scope: 'mine', by: ME, paidMonths: [], startMonth: '2026-11', deleted: false };
+    await launch(page, member({ bills: { b1: bill } }), { hash: '#/profile' });
+    await expect(page.getByRole('heading', { name: 'Reminders' })).toBeVisible();
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Add reminders to my calendar/ }).click()]);
+    expect(download.suggestedFilename()).toBe('tally-payments.ics');
+    const text = (await (await download.createReadStream()).toArray()).join('');
+    expect(text).toContain('SUMMARY:Pay RBC $250.00');
+    expect(text).toContain('RRULE:FREQ=MONTHLY;BYMONTHDAY=10');
+  });
+
   test('typing is not wiped by live data updates', async ({ page }) => {
     await launch(page, member(), { hash: '#/profile' });
     await page.getByLabel('Your name').fill('Typing in progress');

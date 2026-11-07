@@ -7,12 +7,14 @@ import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js
 import { applyKey, keyFromKeyboard } from './core/keypad.js';
 import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
+import { buildCalendar } from './core/reminders.js';
+import { currentSubscription, needsHomeScreen, pushSupported, turnOff, turnOn } from './push.js';
 import { toCsv } from './core/text.js';
 import * as V from './ui/views.js';
 import { entrySheet, billSheet, debtSheet, amountDisplay, fitClass } from './ui/sheets.js';
 import { esc } from './core/text.js';
 
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 const ROUTES = ['home', 'activity', 'shared', 'plan', 'profile'];
 const INSTALL_KEY = 'tally.installDismissed';
 const SIGNED_OUT_KEY = 'tally.signedOut';
@@ -52,6 +54,7 @@ export function startApp(backend, options = {}) {
     sheet: null, // EntryDraft | BillDraft
     sheetOpener: null,
     slow: false,
+    push: { status: 'checking', busy: false, needsHome: false }, // this phone's reminders
   };
   let watchersStarted = false;
   /** @type {number|undefined} */
@@ -68,6 +71,7 @@ export function startApp(backend, options = {}) {
       members: S.members,
       entries: S.entries,
       bills: S.bills,
+      push: S.push,
       debts: S.debts,
       rate: S.rate,
       today: todayIso(now),
@@ -97,6 +101,7 @@ export function startApp(backend, options = {}) {
     }
     if (S.route === 'profile') {
       if (!S.form) S.form = formFromProfile(S.profile);
+      if (S.push.status === 'checking') refreshPush();
       return set(V.profileView(vs, S.form));
     }
     if (S.route === 'activity') return set(V.activityView(vs));
@@ -253,6 +258,84 @@ export function startApp(backend, options = {}) {
       console.error(err);
       toast(err?.code === 'permission-denied' ? `${failure} You don’t have permission for that.` : `${failure} Please try again.`);
     });
+  }
+
+  // ---------- reminders ----------
+
+  function setPush(patch) {
+    S.push = { ...S.push, ...patch };
+    if (S.route === 'profile') render();
+  }
+
+  /** Reads whether this phone is subscribed, without asking for permission. */
+  function refreshPush() {
+    const needsHome = needsHomeScreen();
+    if (!pushSupported()) return setPush({ status: 'unsupported', needsHome });
+    if (Notification.permission === 'denied') return setPush({ status: 'blocked', needsHome });
+    currentSubscription()
+      .then((subscription) => setPush({ status: subscription ? 'on' : 'off', needsHome }))
+      .catch(() => setPush({ status: 'unsupported', needsHome }));
+  }
+
+  function pushOn() {
+    setPush({ busy: true });
+    turnOn()
+      .then(async (result) => {
+        if (result.status === 'blocked') return setPush({ busy: false, status: 'blocked' });
+        await backend.saveSubscription(S.user.email, result.subscription);
+        setPush({ busy: false, status: 'on' });
+        toast('Notifications are on for this phone.');
+      })
+      .catch((err) => {
+        console.error(err);
+        setPush({ busy: false });
+        toast('Notifications couldn’t be turned on. Please try again.');
+      });
+  }
+
+  function pushOff() {
+    setPush({ busy: true });
+    turnOff()
+      .then(() => backend.deleteSubscription(S.user.email))
+      .then(() => {
+        setPush({ busy: false, status: 'off' });
+        toast('Notifications are off on this phone.');
+      })
+      .catch((err) => {
+        console.error(err);
+        setPush({ busy: false });
+        toast('Couldn’t turn notifications off. Please try again.');
+      });
+  }
+
+  /** Asks the server to send one notification to this phone, proving who is asking with the sign-in token. */
+  async function pushTest() {
+    setPush({ busy: true });
+    try {
+      const token = await backend.idToken();
+      const response = await fetch('/api/test-push', { method: 'POST', headers: { Authorization: `Bearer ${token ?? ''}` } });
+      const body = await response.json().catch(() => ({}));
+      setPush({ busy: false });
+      toast(response.ok ? 'Test sent. It should appear in your notifications.' : (body.error || 'The test could not be sent.'));
+    } catch {
+      setPush({ busy: false });
+      toast('Couldn’t reach Tally. Check your connection and try again.');
+    }
+  }
+
+  /** Downloads one calendar file: a monthly event per bill and debt minimum, with alerts 3 and 1 days before. */
+  function downloadCalendar() {
+    const now = new Date();
+    const ics = buildCalendar({ me: S.user.email, now, today: todayIso(now), bills: S.bills, debts: S.debts, entries: S.entries, rate: S.rate.rate });
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tally-payments.ics';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Calendar file ready. Open it to add the reminders.');
   }
 
   // ---------- sheets ----------
@@ -671,6 +754,7 @@ export function startApp(backend, options = {}) {
     if (route !== 'home' && fromHome) history.pushState(null, '', target);
     else history.replaceState(null, '', target);
     if (S.route === 'profile' && route !== 'profile') { S.form = null; S.formDirty = false; }
+    if (route === 'profile') refreshPush();
     S.route = route;
     render();
     window.scrollTo(0, 0);
@@ -746,6 +830,10 @@ export function startApp(backend, options = {}) {
     if (err) err.textContent = '';
   }
 
+  navigator.serviceWorker?.addEventListener('message', (ev) => {
+    if (ev.data?.route === 'plan') go('plan');
+  });
+
   document.addEventListener('click', (ev) => {
     const target = /** @type {HTMLElement|null} */ ((/** @type {HTMLElement} */ (ev.target)).closest('[data-action]'));
     if (!target || target.matches(':disabled')) return;
@@ -774,6 +862,10 @@ export function startApp(backend, options = {}) {
       case 'go': go(String(target.dataset.route)); break;
       case 'go-activity': S.activity.filter = /** @type {any} */ (target.dataset.filter); S.activity.month = monthOf(todayIso()); go('activity'); break;
       case 'set-display': setDisplay(/** @type {any} */ (target.dataset.currency)); break;
+      case 'push-on': pushOn(); break;
+      case 'push-off': pushOff(); break;
+      case 'push-test': pushTest(); break;
+      case 'calendar': downloadCalendar(); break;
       case 'dismiss-install': try { storage?.setItem(INSTALL_KEY, '1'); } catch { /* ignore */ } render(); break;
       case 'filter': S.activity.filter = /** @type {any} */ (target.dataset.filter); render(); break;
       case 'activity-month': S.activity.month = shiftMonth(S.activity.month, Number(target.dataset.delta)); render(); break;
