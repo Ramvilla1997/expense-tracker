@@ -13,6 +13,7 @@ import { entrySheet, billSheet, amountDisplay, fitClass } from './ui/sheets.js';
 export const VERSION = '2.0.0';
 const ROUTES = ['home', 'activity', 'shared', 'plan', 'profile'];
 const INSTALL_KEY = 'tally.installDismissed';
+const SIGNED_OUT_KEY = 'tally.signedOut';
 const SLOW_MS = 8000;
 
 /**
@@ -130,6 +131,8 @@ export function startApp(backend, options = {}) {
   // ---------- lifecycle ----------
 
   function boot() {
+    // After a sign-out reload, start on the welcome screen instead of the splash; auth still confirms it.
+    if (storage?.getItem(SIGNED_OUT_KEY) === '1') S.phase = 'signedOut';
     slowTimer = window.setTimeout(() => { if (S.phase === 'boot') { S.slow = true; render(); } }, SLOW_MS);
     render();
     backend.onAuth(onUser, (/** @type {string} */ message) => {
@@ -156,6 +159,7 @@ export function startApp(backend, options = {}) {
       return;
     }
     S.user = { email: normEmail(user.email), name: user.name };
+    try { storage?.removeItem(SIGNED_OUT_KEY); } catch { /* ignore */ }
     const access = await backend.checkAccess(S.user.email);
     if (access.status === 'denied') { S.phase = 'denied'; clearTimeout(slowTimer); return render(); }
     if (access.status === 'offline') { S.phase = 'offline'; clearTimeout(slowTimer); return render(); }
@@ -619,12 +623,17 @@ export function startApp(backend, options = {}) {
     switch (a) {
       case 'sign-in':
         S.signingIn = true; S.authError = ''; render();
-        backend.signIn().catch(() => { S.signingIn = false; S.authError = 'Couldn’t open Google sign-in. Please try again.'; render(); });
+        backend.signIn()
+          .then((result) => { if (result === 'cancelled' && S.signingIn && !S.user) { S.signingIn = false; render(); } })
+          .catch(() => { S.signingIn = false; S.authError = 'Couldn’t open Google sign-in. Please try again.'; render(); });
         break;
       case 'sign-out':
       case 'switch-account':
+        // Show the welcome screen at once, then reload to clear the data connection; the reload starts on it too.
+        try { storage?.setItem(SIGNED_OUT_KEY, '1'); } catch { /* ignore */ }
+        S.user = null; S.phase = 'signedOut'; S.signingIn = a === 'switch-account'; render();
         backend.signOut().finally(() => {
-          if (a === 'switch-account') { S.signingIn = true; render(); backend.signIn().catch(() => location.reload()); }
+          if (a === 'switch-account') backend.signIn().catch(() => {}).finally(() => location.reload());
           else { location.hash = '#/home'; location.reload(); }
         });
         break;

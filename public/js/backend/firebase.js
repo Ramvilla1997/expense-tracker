@@ -3,7 +3,7 @@
 // so tests can swap in an in-memory backend with the same shape.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
-  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDocFromServer, getDocFromCache,
@@ -33,10 +33,24 @@ export function createFirebaseBackend(firebaseConfig) {
       return onAuthStateChanged(auth, (u) => cb(u ? { email: (u.email ?? '').toLowerCase(), name: u.displayName ?? '' } : null));
     },
 
+    /**
+     * Popup sign-in keeps Google's pages out of the browser history, so Back leaves the app.
+     * Falls back to a full-page redirect only when the browser blocks the popup.
+     * @returns {Promise<'popup'|'redirect'|'cancelled'>}
+     */
     async signIn() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      await signInWithRedirect(auth, provider);
+      try {
+        await signInWithPopup(auth, provider);
+        return 'popup';
+      } catch (err) {
+        const code = /** @type {any} */ (err)?.code;
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return 'cancelled';
+        if (code !== 'auth/popup-blocked' && code !== 'auth/operation-not-supported-in-this-environment') throw err;
+        await signInWithRedirect(auth, provider);
+        return 'redirect';
+      }
     },
 
     /** Signs out and wipes Firestore's on-device cache so no household data stays behind. */
