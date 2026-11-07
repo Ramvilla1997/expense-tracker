@@ -161,7 +161,7 @@ function renderFamily() {
   shared.forEach((e) => { byPerson[e.by] = (byPerson[e.by] || 0) + e.amount; });
   const total = Object.values(byPerson).reduce((a, b) => a + b, 0);
   root.innerHTML = `
-    <h1>Family</h1>
+    <h1>Shared</h1>
     <section class="card">
       <div class="muted">Shared this month</div>
       <div class="big">${fmt(total)}</div>
