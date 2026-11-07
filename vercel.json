@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
-  "installCommand": "npm install --omit=dev",
+  "installCommand": "rm -rf node_modules && npm ci --omit=dev",
   "buildCommand": "",
   "rewrites": [
     {
