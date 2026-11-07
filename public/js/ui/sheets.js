@@ -161,6 +161,7 @@ export function billSheet(d) {
         <button type="button" data-action="bill-scope" data-value="shared" aria-pressed="${d.scope === 'shared'}" data-fkey="b-shared">Shared</button></div></div>
       <p class="muted small" style="margin:0">Due days after the 28th move to the last day in shorter months.</p>
       <p class="error" role="alert">${esc(d.error)}</p>
+      ${!confirm && d.mode === 'edit' ? `<button type="button" class="btn2 full" data-action="item-calendar" data-kind="bill" data-id="${esc(d.id)}" data-fkey="b-cal">Add to calendar</button>` : ''}
       ${confirm || `<div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="bill-delete" style="flex:none" data-fkey="b-del">Delete</button>` : ''}
         <button type="submit" class="btn" data-fkey="b-save">${d.mode === 'edit' ? 'Save changes' : 'Add bill'}</button></div>`}
     </form>`;
@@ -218,6 +219,7 @@ export function debtSheet(d, today) {
         ${seg('debt-scope', 'mine', 'Only me', d.scope === 'mine')}${seg('debt-scope', 'shared', 'Both of you', d.scope === 'shared')}</div></div>
       <p class="muted small" style="margin:0">Tally never adds interest to the balance. When a statement arrives, update the balance and its date.</p>
       <p class="error" role="alert">${esc(d.error)}</p>
+      ${!confirm && d.mode === 'edit' ? `<button type="button" class="btn2 full" data-action="item-calendar" data-kind="debt" data-id="${esc(d.id)}" data-fkey="d-cal">Add to calendar</button>` : ''}
       ${confirm || `<div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="debt-delete" style="flex:none" data-fkey="d-del">Delete</button>` : ''}
         <button type="submit" class="btn" data-fkey="d-save">${d.mode === 'edit' ? 'Save changes' : 'Add debt'}</button></div>`}
     </form>`}`;
