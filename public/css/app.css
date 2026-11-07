@@ -44,7 +44,7 @@ body {
   font-size: 15px;
   line-height: 1.45;
   color: var(--ink);
-  background: linear-gradient(180deg, #ECEBF7 0, var(--canvas) 320px) no-repeat, var(--canvas);
+  background: var(--canvas);
   font-variant-numeric: tabular-nums;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
