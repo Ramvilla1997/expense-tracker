@@ -539,11 +539,22 @@ export function startApp(backend, options = {}) {
 
   // ---------- events ----------
 
-  /** @param {string} route */
+  /**
+   * Tabs don't stack in history, like a native tab bar. From Home a tab adds one entry;
+   * moving between tabs, or back to Home, replaces it. So Back from any tab returns to Home,
+   * and Back from Home leaves the app.
+   * @param {string} route
+   */
   function go(route) {
     if (!ROUTES.includes(route)) route = 'home';
-    if (location.hash !== `#/${route}`) location.hash = `#/${route}`;
-    else { S.route = route; render(); }
+    const target = `${location.pathname}${location.search}#/${route}`;
+    const fromHome = S.route === 'home';
+    if (route !== 'home' && fromHome) history.pushState(null, '', target);
+    else history.replaceState(null, '', target);
+    if (S.route === 'profile' && route !== 'profile') { S.form = null; S.formDirty = false; }
+    S.route = route;
+    render();
+    window.scrollTo(0, 0);
   }
 
   window.addEventListener('hashchange', () => {
