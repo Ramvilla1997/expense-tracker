@@ -77,7 +77,8 @@ test.describe('Home dashboard', () => {
       b2: { name: 'Bro phone', amount: 50000, currency: 'INR', dueDay: 11, scope: 'mine', by: BRO, paidMonths: [], startMonth: '2026-11', deleted: false },
     } }));
     const card = page.getByRole('region', { name: 'Needs you' });
-    await expect(card.getByText('Credit card · CAD 640.00')).toBeVisible();
+    await expect(card.getByText('Credit card', { exact: true })).toBeVisible();
+    await expect(card.getByText('CAD 640.00')).toBeVisible();
     await expect(card.getByText('Due in 1 day · Thu 12 Nov')).toBeVisible();
     await card.getByRole('button', { name: 'Mark paid' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Credit card marked paid' })).toBeVisible();

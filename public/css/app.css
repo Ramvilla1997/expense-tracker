@@ -83,7 +83,7 @@ button:disabled { cursor: not-allowed; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -2px 0 rgba(0,0,0,.18), 0 18px 34px -16px rgba(42,38,120,.6);
 }
 .hero .soft { color: rgba(255,255,255,.82); }
-.hero-amount { font-size: clamp(30px, 11vw, 42px); line-height: 1.1; margin-top: 4px; overflow-wrap: anywhere; }
+.hero-amount { font-size: clamp(30px, 10.5vw, 44px); line-height: 1.1; margin-top: 4px; overflow-wrap: anywhere; }
 .hero-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.16); font-size: 13px; }
 .tint { background: var(--brand-soft); border: 1px solid #DCDAF5; border-radius: var(--radius); padding: 16px; color: #2E2B6E; }
 
@@ -209,7 +209,7 @@ button.row:active { background: #F3F3F7; }
 .cur-switch:active { background: #EEEEF3; }
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .key {
-  min-height: 54px; border-radius: 16px; border: 1px solid rgba(20,22,43,.08); background: #fff; font-size: 22px; font-weight: 700;
+  min-height: 52px; border-radius: 16px; border: 1px solid rgba(20,22,43,.08); background: #fff; font-size: 22px; font-weight: 700;
   box-shadow: inset 0 -2px 0 rgba(20,22,43,.06); transition: transform .08s, background .08s;
 }
 .key:active { transform: translateY(1px); background: #EEEEF3; }
@@ -261,3 +261,10 @@ button.row:active { background: #F3F3F7; }
 .stat-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
 .stat { height: auto; padding: 12px; text-align: left; display: block; white-space: normal; min-width: 0; }
 .stat .num { display: block; font-size: 19px; margin-top: 2px; overflow-wrap: anywhere; }
+
+/* Sheet children must never be squashed by the flex column (the category row vanished). */
+.sheet > * { flex-shrink: 0; }
+.hero-amount { white-space: nowrap; }
+.hero-amount .cur { font-size: .5em; font-weight: 700; letter-spacing: 0; margin-right: 6px; opacity: .85; vertical-align: .55em; }
+.wrap-meta { white-space: normal; }
+@media (max-height: 760px) { .key { min-height: 48px; font-size: 20px; } .amount-display .num { font-size: 44px; } }

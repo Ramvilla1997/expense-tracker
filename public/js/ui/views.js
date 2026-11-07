@@ -46,6 +46,12 @@ const display = (s) => s.profile.displayCurrency;
 /** @param {ViewState} s @param {number} minor @param {any} [opts] */
 const money = (s, minor, opts) => formatMoney(minor, display(s), opts);
 
+/** Big hero number with a small currency code, so it fits on one line. @param {ViewState} s @param {number} minor */
+function heroMoney(s, minor) {
+  const text = money(s, minor);
+  return text.startsWith('CAD ') ? `<span class="cur">CAD</span> ${esc(text.slice(4))}` : esc(text);
+}
+
 /** @param {ViewState} s @param {Entry} e */
 function entryAmount(s, e) {
   const shown = convert(e.amount, e.currency, display(s), s.rate.rate);
@@ -183,7 +189,7 @@ export function homeView(s) {
   let hero;
   if (!b.hasBudget) {
     hero = `<div class="spread" style="align-items:flex-start"><div><div class="soft small" style="font-weight:600">Your spending this month</div>
-        <div class="num hero-amount">${esc(money(s, b.spentMonth))}</div></div>${currencyToggle(s)}</div>
+        <div class="num hero-amount">${heroMoney(s, b.spentMonth)}</div></div>${currencyToggle(s)}</div>
       <div class="hero-foot"><span class="soft">Set a budget to see what’s safe to spend each day.</span>
         <button type="button" class="btn2" data-action="go" data-route="profile" style="min-height:40px">Set budget</button></div>`;
   } else {
@@ -193,7 +199,7 @@ export function homeView(s) {
     const sub = over ? `Budget ${money(s, b.budget, { compact: true })} · ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'} left` : `of ${money(s, b.allowanceToday)} today · ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'} left`;
     const [, tagText] = STATUS_TAG[b.status];
     hero = `<div class="spread" style="align-items:flex-start"><div style="min-width:0"><div class="soft small" style="font-weight:600">${label}</div>
-        <div class="num hero-amount">${esc(money(s, amount))}</div><div class="soft small">${esc(sub)}</div></div>
+        <div class="num hero-amount">${heroMoney(s, amount)}</div><div class="soft small">${esc(sub)}</div></div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">${currencyToggle(s)}${over ? '' : ring(b.ringRatio, `${Math.round(b.ringRatio * 100)} percent of today’s amount used`)}</div></div>
       <div class="hero-foot"><span class="soft">This month: <strong style="color:#fff">${esc(money(s, b.spentMonth, { compact: true }))} of ${esc(money(s, b.budget, { compact: true }))}</strong></span>
         <span class="tag t-hero"><span class="dot" style="background:${b.status === 'on-track' ? '#7CE3B1' : b.status === 'ahead' ? '#FFC98A' : '#FF9A8F'}"></span>${tagText}</span></div>`;
@@ -202,7 +208,8 @@ export function homeView(s) {
   const urgent = mostUrgentBill(s.bills.filter((x) => x.by === s.me || x.scope === 'shared'), s.today);
   const needs = urgent ? `<section class="card" aria-label="Needs you" style="padding:14px 16px">
       <div class="spread"><div class="row-main"><span class="ico" style="background:var(--${urgent.status.kind === 'overdue' ? 'neg' : 'warn'}-bg);color:var(--${urgent.status.kind === 'overdue' ? 'neg' : 'warn'})">${icon('card')}</span>
-        <div class="ellipsis"><div class="row-title ellipsis">${esc(urgent.bill.name)} · ${esc(formatMoney(convert(urgent.bill.amount, urgent.bill.currency, display(s), s.rate.rate), display(s)))}</div>
+        <div class="ellipsis"><div class="row-title ellipsis">${esc(urgent.bill.name)}</div>
+        <div class="small muted">${esc(formatMoney(convert(urgent.bill.amount, urgent.bill.currency, display(s), s.rate.rate), display(s)))}</div>
         <div class="small ${urgent.status.kind === 'overdue' ? 'neg' : 'warn'}" style="font-weight:700">${esc(urgent.status.label)} · ${esc(shortDate(urgent.status.dueDate))}</div></div></div>
       <button type="button" class="btn2" data-action="bill-paid" data-id="${esc(urgent.bill.id)}">Mark paid</button></div></section>` : '';
 
@@ -328,8 +335,8 @@ export function planView(s) {
     const amount = formatMoney(convert(bill.amount, bill.currency, display(s), s.rate.rate), display(s));
     return `<div class="row" style="padding-right:12px">
       <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-bill" data-id="${esc(bill.id)}">
-        <span class="ico">${icon('Bills')}</span><span class="ellipsis"><span class="row-title ellipsis" style="display:block">${esc(bill.name)}</span>
-        <span class="row-meta" style="display:block">${esc(meta)}</span><span class="tag ${BILL_TAG[status.kind]}" style="margin-top:4px">${esc(status.label)}</span></span></button>
+        <span class="ico">${icon('Bills')}</span><span style="min-width:0"><span class="row-title ellipsis" style="display:block">${esc(bill.name)}</span>
+        <span class="row-meta wrap-meta" style="display:block">${esc(meta)}</span><span class="tag ${BILL_TAG[status.kind]}" style="margin-top:4px">${esc(status.label)}</span></span></button>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="row-amt">${esc(amount)}</span>
         <button type="button" class="btn2" style="min-height:36px;padding:0 12px;font-size:13px" data-action="bill-paid" data-id="${esc(bill.id)}" aria-pressed="${paid}">${paid ? `${icon('check', { size: 14 })} Paid` : 'Mark paid'}</button></div></div>`;
   }).join('');
