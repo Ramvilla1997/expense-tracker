@@ -829,6 +829,7 @@ export function startApp(backend, options = {}) {
       case 'entry-delete': readSheetInputs(); d.confirmDelete = true; renderSheet(); break;
       case 'entry-delete-confirm': deleteEntry(d.id); break;
       case 'bill-scope': readSheetInputs(); d.scope = target.dataset.value; d.dirty = true; renderSheet(); break;
+      case 'bill-currency': readSheetInputs(); d.currency = target.dataset.value; d.dirty = true; renderSheet(); break;
       case 'bill-delete': readSheetInputs(); d.confirmDelete = true; renderSheet(); break;
       case 'bill-delete-confirm': {
         const id = d.id;

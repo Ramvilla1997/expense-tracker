@@ -150,6 +150,9 @@ export function billSheet(d) {
       <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
     <form class="stack" data-form="bill" novalidate>
       <label class="field"><span>Name</span><input class="input" name="name" maxlength="${BILL_NAME_MAX}" placeholder="e.g. Credit card, Rent, Phone" value="${esc(d.name)}" autocomplete="off" data-fkey="b-name"></label>
+      <div class="field"><span class="label" id="bcur">Currency</span><div class="seg" role="group" aria-labelledby="bcur">
+        <button type="button" data-action="bill-currency" data-value="CAD" aria-pressed="${d.currency === 'CAD'}" data-fkey="b-cad">CAD</button>
+        <button type="button" data-action="bill-currency" data-value="INR" aria-pressed="${d.currency === 'INR'}" data-fkey="b-inr">INR</button></div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <label class="field"><span>Amount (${d.currency})</span><input class="input" name="amount" inputmode="decimal" placeholder="0.00" value="${esc(d.amountText)}" autocomplete="off" data-fkey="b-amt"></label>
         <label class="field"><span>Due day</span><input class="input" name="dueDay" inputmode="numeric" placeholder="1–31" value="${esc(d.dueDayText)}" autocomplete="off" data-fkey="b-day"></label></div>
