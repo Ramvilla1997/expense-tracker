@@ -1,91 +1,113 @@
 import { test, expect } from '@playwright/test';
 import { BRO, ME, entry, launch, member, mockState } from './fixtures.js';
 
+const mbna = { name: 'MBNA', type: 'card', currency: 'CAD', balance: 1000000, balanceDate: '2026-11-01', minimum: 11293, dueDay: 15, apr: 20, scope: 'shared', by: ME, deleted: false };
+const hdfc = { name: 'HDFC', type: 'card', currency: 'INR', balance: 18900000, balanceDate: '2026-11-01', minimum: 1800000, dueDay: 9, apr: null, scope: 'shared', by: ME, deleted: false };
+
 test.describe('Home dashboard', () => {
-  test('shows greeting, date and the safe-to-spend hero', async ({ page }) => {
-    // Budget CAD 3,000. 11 Nov → 20 days left. CAD 1,000 spent before today, CAD 25 today.
+  test('without income: what went out this month, and today’s safe amount', async ({ page }) => {
+    // Budget $3,000. 11 Nov → 20 days left. $1,000 spent before today, $25 today → today’s amount $100, $75 left.
     await launch(page, member({ entries: Object.fromEntries([entry({ date: '2026-11-02', amount: 100000 }), entry({ amount: 2500, note: 'Lunch' })]) }));
     await expect(page.getByText('Wednesday, 11 November')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Good morning, Ram' })).toBeVisible();
-    const hero = page.getByRole('region', { name: 'Today’s budget' });
+    const hero = page.getByRole('region', { name: 'This month' });
+    await expect(hero.getByText('Out in November so far')).toBeVisible();
+    await expect(hero.getByText('$1,025.00')).toBeVisible();
     await expect(hero.getByText('Safe to spend today')).toBeVisible();
-    await expect(hero.getByText('CAD 75.00')).toBeVisible();
-    await expect(hero.getByText('of CAD 100.00 today · 20 days left')).toBeVisible();
-    await expect(hero.getByRole('img', { name: '25 percent of today’s amount used' })).toBeVisible();
-    await expect(hero.getByText('On track')).toBeVisible();
-    await expect(hero.getByText('CAD 1,025 of CAD 3,000')).toBeVisible();
+    await expect(hero.getByText('$75.00')).toBeVisible();
   });
 
-  test('switching to INR converts every number and is saved', async ({ page }) => {
+  test('with income: what is left, split into debts, bills and spending', async ({ page }) => {
+    await launch(page, member({
+      debts: { d1: mbna },
+      entries: Object.fromEntries([
+        entry({ type: 'income', category: 'Salary', amount: 380000, date: '2026-11-06' }),
+        entry({ category: 'Bills', amount: 24000, date: '2026-11-05', note: 'Insurance' }),
+        entry({ amount: 4100, date: '2026-11-04' }),
+        entry({ category: 'Debt', debtId: 'd1', amount: 140000, date: '2026-11-06', note: 'MBNA payment' }),
+      ]),
+    }));
+    const hero = page.getByRole('region', { name: 'This month' });
+    await expect(hero.getByText('Left for November')).toBeVisible();
+    await expect(hero.getByText('$2,119.00')).toBeVisible(); // 3,800 − 1,400 − 240 − 41
+    await expect(hero.getByText('of $3,800.00 income this month')).toBeVisible();
+    await expect(hero.getByRole('img', { name: 'Debts $1,400, Bills $240, Spent $41, Left $2,119' })).toBeVisible();
+    // The $1,400 debt payment is not spending: today's safe amount ignores it.
+    await expect(hero.getByText('Safe to spend today')).toBeVisible();
+  });
+
+  test('switching to INR converts the hero and is saved', async ({ page }) => {
     await launch(page, member({ entries: Object.fromEntries([entry({ amount: 1000 })]) }));
-    await page.getByRole('region', { name: 'Today’s budget' }).getByRole('button', { name: 'INR' }).click();
-    await expect(page.getByRole('region', { name: 'Today’s budget' }).getByRole('button', { name: 'INR' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText('−₹612.00').first()).toBeVisible();
-    await expect(page.getByText('CAD 10.00')).toBeVisible(); // original amount still shown under the converted one
+    const hero = page.getByRole('region', { name: 'This month' });
+    await hero.getByRole('button', { name: 'INR' }).click();
+    await expect(hero.getByRole('button', { name: 'INR' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(hero.getByText('₹612.00').first()).toBeVisible();
     expect((await mockState(page)).data.profiles[ME].displayCurrency).toBe('INR');
   });
 
-  test('no budget: shows spending this month and a way to set one', async ({ page }) => {
+  test('no budget: a way to set one', async ({ page }) => {
     const cfg = member({ entries: Object.fromEntries([entry({ amount: 4250 })]) });
     cfg.profiles[ME].monthlyBudget = 0;
     await launch(page, cfg);
-    await expect(page.getByText('Your spending this month')).toBeVisible();
-    await expect(page.getByText('CAD 42.50').first()).toBeVisible();
+    await expect(page.getByText('Set a budget to see what’s safe to spend each day.')).toBeVisible();
     await page.getByRole('button', { name: 'Set budget' }).click();
     await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
   });
 
-  test('over budget: says so instead of a per-day number', async ({ page }) => {
-    await launch(page, member({ entries: Object.fromEntries([entry({ date: '2026-11-03', amount: 310000 })]) }));
-    const hero = page.getByRole('region', { name: 'Today’s budget' });
-    await expect(hero.getByText('Over budget this month by')).toBeVisible();
-    await expect(hero.getByText('CAD 100.00')).toBeVisible();
-    await expect(hero.getByText('Over budget', { exact: true })).toBeVisible();
-    await expect(page.getByText('NaN')).toHaveCount(0);
-    await expect(page.getByText('Infinity')).toHaveCount(0);
-  });
-
-  test('over today’s amount: clear wording, ring full', async ({ page }) => {
+  test('over today’s amount: clear wording', async ({ page }) => {
     await launch(page, member({ entries: Object.fromEntries([entry({ amount: 20000 })]) }));
-    const hero = page.getByRole('region', { name: 'Today’s budget' });
+    const hero = page.getByRole('region', { name: 'This month' });
     await expect(hero.getByText('Over today’s amount by')).toBeVisible();
-    await expect(hero.getByText('CAD 50.00')).toBeVisible(); // allowance 150, spent 200
-    await expect(hero.getByRole('img', { name: '100 percent of today’s amount used' })).toBeVisible();
+    await expect(hero.getByText('$50.00')).toBeVisible(); // allowance 150, spent 200
+    await expect(page.getByText('NaN')).toHaveCount(0);
   });
 
   test('shared costs count half towards my budget, whoever paid', async ({ page }) => {
     await launch(page, member({ entries: Object.fromEntries([entry({ scope: 'shared', by: BRO, amount: 6120, currency: 'INR' }), entry({ scope: 'shared', amount: 1000 })]) }));
-    // My part today: 0.5 × (₹61.20 → CAD 1.00) + 0.5 × CAD 10 = CAD 5.50. Allowance 150 → safe 144.50
-    await expect(page.getByRole('region', { name: 'Today’s budget' }).getByText('CAD 144.50')).toBeVisible();
+    // My part today: 0.5 × (₹61.20 → $1.00) + 0.5 × $10 = $5.50. Allowance 150 → safe 144.50
+    await expect(page.getByRole('region', { name: 'This month' }).getByText('$144.50')).toBeVisible();
   });
 
-  test('today list includes everyone, with author and a total; empty state invites +', async ({ page }) => {
-    await launch(page, member({ entries: Object.fromEntries([entry({ amount: 1200, note: 'Coffee' }), entry({ amount: 61200, currency: 'INR', by: BRO, scope: 'shared', category: 'Home', note: 'Rice' })]) }));
-    const today = page.getByRole('region', { name: 'Today' });
-    await expect(today.getByRole('button', { name: /Coffee/ })).toBeVisible();
-    await expect(today.getByRole('button', { name: /Rice.*Home · Shared · by Vamsi.*CAD 10\.00/ })).toBeVisible();
-    await expect(today.locator('.card-head')).toContainText('−CAD 22.00');
-
-    const empty = await page.context().newPage();
-    await launch(empty, member());
-    await expect(empty.getByText('Nothing yet today')).toBeVisible();
-  });
-
-  test('"Needs you" shows the most urgent bill and marks it paid', async ({ page }) => {
-    await launch(page, member({ bills: {
-      b1: { name: 'Credit card', amount: 64000, currency: 'CAD', dueDay: 12, scope: 'mine', by: ME, paidMonths: [], startMonth: '2026-11', deleted: false },
-      b2: { name: 'Bro phone', amount: 50000, currency: 'INR', dueDay: 11, scope: 'mine', by: BRO, paidMonths: [], startMonth: '2026-11', deleted: false },
-    } }));
-    const card = page.getByRole('region', { name: 'Needs you' });
-    await expect(card.getByText('Credit card', { exact: true })).toBeVisible();
-    await expect(card.getByText('CAD 640.00')).toBeVisible();
-    await expect(card.getByText('Due in 1 day · Thu 12 Nov')).toBeVisible();
-    await card.getByRole('button', { name: 'Mark paid' }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Credit card marked paid' })).toBeVisible();
-    await expect(card).toHaveCount(0);
+  test('Due soon lists bills and debts with shapes on the date strip; a bill can be marked paid', async ({ page }) => {
+    await launch(page, member({
+      debts: { d1: mbna },
+      bills: { b1: { name: 'Insurance', amount: 24000, currency: 'CAD', dueDay: 14, scope: 'mine', by: ME, paidMonths: [], startMonth: '2026-11', deleted: false } },
+    }));
+    const due = page.getByRole('region', { name: 'Due soon' });
+    await expect(due.getByRole('img', { name: /payday Fri 13 Nov, due Sat 14 Nov, due Sun 15 Nov/ })).toBeVisible();
+    await expect(due.getByText('$352.93 in 2 weeks')).toBeVisible();
+    await due.getByRole('button', { name: 'Mark paid: Insurance' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Insurance marked paid' })).toBeVisible();
     expect((await mockState(page)).data.bills.b1.paidMonths).toEqual(['2026-11']);
-    await page.getByRole('button', { name: 'Add as expense' }).click();
-    await expect(page.getByRole('region', { name: 'Today' }).getByRole('button', { name: /Credit card.*Bills.*CAD 640\.00/ })).toBeVisible();
+    await expect(due.getByRole('button', { name: 'Mark paid: Insurance' })).toHaveCount(0);
+  });
+
+  test('paying a debt: minimum filled in, balance drops, not counted as spending', async ({ page }) => {
+    await launch(page, member({ debts: { d1: mbna, d2: hdfc } }));
+    await expect(page.getByRole('region', { name: 'Debts' }).getByRole('img', { name: 'MBNA $10,000.00 left' })).toBeVisible();
+    await page.getByRole('region', { name: 'Due soon' }).getByRole('button', { name: 'Pay MBNA' }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByRole('heading', { name: 'Pay MBNA' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: /Minimum \$112\.93/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(sheet.getByText('Balance after: $9,887.07')).toBeVisible();
+    await sheet.getByRole('button', { name: /Full \$10,000/ }).click();
+    await expect(sheet.getByText('This pays it off.')).toBeVisible();
+    await sheet.getByRole('button', { name: /Minimum/ }).click();
+    await sheet.getByRole('button', { name: 'Pay $112.93' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Paid $112.93 to MBNA' })).toBeVisible();
+    const saved = Object.values((await mockState(page)).data.entries)[0];
+    expect(saved).toMatchObject({ type: 'expense', category: 'Debt', debtId: 'd1', amount: 11293, currency: 'CAD', scope: 'shared' });
+    await expect(page.getByRole('region', { name: 'Debts' }).getByRole('img', { name: 'MBNA $9,887.07 left' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Debts' }).getByText('$112.93', { exact: true })).toBeVisible(); // paid this month
+    // Not spending: the hero's "out this month" counts it under Debts, today's safe amount is untouched.
+    await expect(page.getByRole('region', { name: 'This month' }).getByText('$150.00')).toBeVisible();
+  });
+
+  test('no debts yet: Debts invites you to add one', async ({ page }) => {
+    await launch(page);
+    const debts = page.getByRole('region', { name: 'Debts' });
+    await debts.getByRole('button', { name: 'Add a debt' }).click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: 'Add a debt' })).toBeVisible();
   });
 
   test('install hint can be dismissed for good', async ({ page }) => {
@@ -97,13 +119,6 @@ test.describe('Home dashboard', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: /Good morning/ })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Install Tally' })).toHaveCount(0);
-  });
-
-  test('month card links to filtered Activity', async ({ page }) => {
-    await launch(page, member({ entries: Object.fromEntries([entry({ amount: 900 })]) }));
-    await page.getByRole('button', { name: /Personal/ }).first().click();
-    await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Personal', exact: true })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 

@@ -29,7 +29,7 @@ export const SHARED_SPLIT = 0.5;
  * @param {Entry} e @param {string} me @param {Currency} display @param {number} rate
  */
 export function myPart(e, me, display, rate) {
-  if (e.deleted || e.type !== 'expense') return 0;
+  if (e.deleted || e.type !== 'expense' || e.debtId) return 0;
   if (e.scope === 'shared') return convert(e.amount, e.currency, display, rate) * SHARED_SPLIT;
   return e.by === me ? convert(e.amount, e.currency, display, rate) : 0;
 }

@@ -2,10 +2,11 @@
 import { icon } from './icons.js';
 import { esc, firstName, initial } from '../core/text.js';
 import { convert, formatMoney } from '../core/money.js';
-import { dayLabel, greeting, longDate, monthLabel, monthOf, nextPayday, shortDate, daysBetween } from '../core/dates.js';
-import { active, applyFilter, groupByDay, inMonth, settleUp, sharedByPerson, topCategories, total } from '../core/entries.js';
+import { addDays, dayLabel, daysInMonth, greeting, longDate, monthLabel, monthOf, nextPayday, parseIso, shiftMonth, shortDate, daysBetween } from '../core/dates.js';
+import { active, applyFilter, debtPaidTotal, groupByDay, inMonth, settleUp, sharedByPerson, total } from '../core/entries.js';
 import { budgetView, myPart } from '../core/budget.js';
-import { mostUrgentBill, sortBills } from '../core/bills.js';
+import { sortBills } from '../core/bills.js';
+import { balanceLeft, debtStatus, debtTotals, estimate, visibleDebts } from '../core/debts.js';
 
 /** @typedef {import('../core/entries.js').Entry & {pending?: boolean}} Entry */
 /** @typedef {import('../core/bills.js').Bill} Bill */
@@ -19,10 +20,11 @@ import { mostUrgentBill, sortBills } from '../core/bills.js';
  * @property {string[]} members
  * @property {Entry[]} entries
  * @property {Bill[]} bills
+ * @property {import('../core/debts.js').Debt[]} debts
  * @property {{rate:number, date:string, source:string}} rate
  * @property {string} today
  * @property {number} hour
- * @property {{month:string, filter:'all'|'personal'|'shared'|'income'}} activity
+ * @property {{month:string, filter:'all'|'personal'|'shared'|'debts'|'income'}} activity
  * @property {{month:string}} shared
  * @property {boolean} showInstall
  * @property {string} installHint
@@ -46,12 +48,6 @@ const display = (s) => s.profile.displayCurrency;
 /** @param {ViewState} s @param {number} minor @param {any} [opts] */
 const money = (s, minor, opts) => formatMoney(minor, display(s), opts);
 
-/** Big hero number with a small currency code, so it fits on one line. @param {ViewState} s @param {number} minor */
-function heroMoney(s, minor) {
-  const text = money(s, minor);
-  return text.startsWith('CAD ') ? `<span class="cur">CAD</span> ${esc(text.slice(4))}` : esc(text);
-}
-
 /** @param {ViewState} s @param {Entry} e */
 function entryAmount(s, e) {
   const shown = convert(e.amount, e.currency, display(s), s.rate.rate);
@@ -62,8 +58,8 @@ function entryAmount(s, e) {
 
 /** @param {ViewState} s @param {Entry} e @param {{showDate?: boolean}} [o] */
 function entryRow(s, e, o = {}) {
-  const parts = [e.type === 'income' ? 'Income' : e.category];
-  if (e.type === 'expense' && e.scope === 'shared') parts.push('Shared');
+  const parts = [e.type === 'income' ? 'Income' : e.debtId ? 'Debt payment' : e.category];
+  if (e.type === 'expense' && e.scope === 'shared' && !e.debtId) parts.push('Shared');
   if (e.by !== s.me || e.scope === 'shared') parts.push(`by ${personName(s, e.by)}`);
   if (o.showDate) parts.push(dayLabel(e.date, s.today));
   const title = e.note || (e.type === 'income' ? e.category : e.category);
@@ -74,19 +70,6 @@ function entryRow(s, e, o = {}) {
     ${entryAmount(s, e)}</button>`;
 }
 
-/** @param {number} ratio 0..1 @param {string} label */
-function ring(ratio, label) {
-  const r = 31;
-  const c = 2 * Math.PI * r;
-  const filled = Math.max(0, Math.min(1, ratio)) * c;
-  const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-  const colour = ratio >= 1 ? '#FFC98A' : '#7CE3B1';
-  return `<svg class="ring" width="76" height="76" viewBox="0 0 76 76" role="img" aria-label="${esc(label)}">
-    <circle cx="38" cy="38" r="${r}" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="8"/>
-    <circle cx="38" cy="38" r="${r}" fill="none" stroke="${colour}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${filled.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 38 38)"/>
-    <text x="38" y="43" text-anchor="middle" font-family="Jakarta, sans-serif" font-size="14" font-weight="800" fill="#fff">${pct}%</text></svg>`;
-}
-
 /** @param {ViewState} s */
 function currencyToggle(s, onHero = true) {
   return `<div class="seg ${onHero ? 'on-hero' : ''}" role="group" aria-label="Show amounts in">
@@ -95,13 +78,6 @@ function currencyToggle(s, onHero = true) {
 
 /** @param {string} title @param {string} body */
 const empty = (title, body) => `<div class="card-pad" style="text-align:center;padding:26px 18px"><div class="row-title">${esc(title)}</div><p class="muted small" style="margin:4px 0 0">${body}</p></div>`;
-
-const STATUS_TAG = {
-  'on-track': ['t-pos', 'On track'],
-  ahead: ['t-warn', 'Running ahead'],
-  over: ['t-neg', 'Over budget'],
-};
-const BILL_TAG = { paid: 't-pos', overdue: 't-neg', today: 't-warn', soon: 't-warn', upcoming: 't-neu' };
 
 // ---------- pre-app screens ----------
 
@@ -181,67 +157,204 @@ function profileFields(f) {
 // ---------- main screens ----------
 
 /** @param {ViewState} s */
+const visibleBills = (s) => s.bills.filter((x) => !x.deleted && (x.by === s.me || x.scope === 'shared'));
+
+/** Debts I can see, each with what is left and its status. @param {ViewState} s */
+function debtRows(s) {
+  return visibleDebts(s.debts, s.me).map((debt) => {
+    const left = balanceLeft(debt, s.entries, s.rate.rate);
+    return { debt, left, leftShown: convert(left, debt.currency, display(s), s.rate.rate), status: debtStatus(debt, s.entries, s.today, s.rate.rate) };
+  });
+}
+
+/** @param {ViewState} s @param {number} minor @param {Currency} currency */
+const shown = (s, minor, currency) => money(s, convert(minor, currency, display(s), s.rate.rate));
+
+/** @param {string} iso */
+const weekdayDay = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
+
+const DEBT_TILE = { card: ['', 'Debt'], loan: ['', 'loan'], person: ['teal', 'shared'] };
+
+/**
+ * Bills and debts due in the next 14 days, soonest first.
+ * @param {ViewState} s
+ */
+function dueSoon(s) {
+  const items = [];
+  for (const { bill, status } of sortBills(visibleBills(s), s.today)) {
+    if (status.kind === 'paid' || status.days > 13) continue;
+    items.push({ kind: 'bill', id: bill.id, name: bill.name, date: status.dueDate, days: status.days, overdue: status.kind === 'overdue', amount: convert(bill.amount, bill.currency, display(s), s.rate.rate) });
+  }
+  for (const { debt, status } of debtRows(s)) {
+    if (!['overdue', 'today', 'soon', 'upcoming'].includes(status.kind) || status.days > 13) continue;
+    items.push({ kind: 'debt', id: debt.id, name: debt.name, date: status.dueDate, days: status.days, overdue: status.kind === 'overdue', amount: convert(debt.minimum, debt.currency, display(s), s.rate.rate) });
+  }
+  return items.sort((a, b) => a.days - b.days || a.name.localeCompare(b.name));
+}
+
+/** The next 14 days with due dates and payday marked by shape as well as colour. @param {ViewState} s @param {{date:string}[]} items */
+function dayStrip(s, items) {
+  const due = new Set(items.map((i) => i.date));
+  const payday = nextPayday(s.profile.payFrequency, s.profile.payAnchor, s.today);
+  const parts = [];
+  const said = [];
+  for (let i = 0; i < 14; i++) {
+    const date = addDays(s.today, i);
+    const n = Number(date.slice(8));
+    if (i === 0) { parts.push(`<span class="day today"><b>${n}</b></span>`); continue; }
+    if (date === payday) { parts.push(`<span class="day pay">${n}${icon('check', { size: 11, stroke: 3.4 })}</span>`); said.push(`payday ${shortDate(date)}`); continue; }
+    if (due.has(date)) { parts.push(`<span class="day due">${n}<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.6" y="1.6" width="6.8" height="6.8" transform="rotate(45 5 5)" fill="#B45309"/></svg></span>`); said.push(`due ${shortDate(date)}`); continue; }
+    parts.push(`<span class="day">${n}</span>`);
+  }
+  return `<div class="days" role="img" aria-label="Next two weeks: ${esc(said.join(', ') || 'nothing due')}">${parts.join('')}</div>`;
+}
+
+/** @param {ViewState} s */
 export function homeView(s) {
   const all = active(s.entries);
-  const b = budgetView({ entries: all, me: s.me, budget: s.profile.monthlyBudget, budgetCurrency: s.profile.homeCurrency, display: display(s), rate: s.rate.rate, today: s.today });
+  const disp = display(s);
+  const rate = s.rate.rate;
+  const month = monthOf(s.today);
+  const monthName = monthLabel(month).split(' ')[0];
+  const b = budgetView({ entries: all, me: s.me, budget: s.profile.monthlyBudget, budgetCurrency: s.profile.homeCurrency, display: disp, rate, today: s.today });
   const name = firstName(s.profile.name, s.me);
 
-  let hero;
-  if (!b.hasBudget) {
-    hero = `<div class="spread" style="align-items:flex-start"><div><div class="soft small" style="font-weight:600">Your spending this month</div>
-        <div class="num hero-amount">${heroMoney(s, b.spentMonth)}</div></div>${currencyToggle(s)}</div>
-      <div class="hero-foot"><span class="soft">Set a budget to see what’s safe to spend each day.</span>
-        <button type="button" class="btn2" data-action="go" data-route="profile" style="min-height:40px">Set budget</button></div>`;
-  } else {
-    const over = b.overBudget;
-    const label = over ? 'Over budget this month by' : b.safeToday < 0 ? 'Over today’s amount by' : 'Safe to spend today';
-    const amount = over ? -b.remaining : Math.abs(b.safeToday);
-    const sub = over ? `Budget ${money(s, b.budget, { compact: true })} · ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'} left` : `of ${money(s, b.allowanceToday)} today · ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'} left`;
-    const [, tagText] = STATUS_TAG[b.status];
-    hero = `<div class="spread" style="align-items:flex-start"><div style="min-width:0"><div class="soft small" style="font-weight:600">${label}</div>
-        <div class="num hero-amount">${heroMoney(s, amount)}</div><div class="soft small">${esc(sub)}</div></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">${currencyToggle(s)}${over ? '' : ring(b.ringRatio, `${Math.round(b.ringRatio * 100)} percent of today’s amount used`)}</div></div>
-      <div class="hero-foot"><span class="soft">This month: <strong style="color:#fff">${esc(money(s, b.spentMonth, { compact: true }))} of ${esc(money(s, b.budget, { compact: true }))}</strong></span>
-        <span class="tag t-hero"><span class="dot" style="background:${b.status === 'on-track' ? '#7CE3B1' : b.status === 'ahead' ? '#FFC98A' : '#FF9A8F'}"></span>${tagText}</span></div>`;
+  // Where this month's money went: my income against my debt payments, bills and other spending.
+  const monthEntries = inMonth(all, month);
+  const income = total(monthEntries.filter((e) => e.by === s.me), disp, rate, 'income');
+  const debtPaid = Math.round(debtPaidTotal(monthEntries.filter((e) => e.by === s.me), disp, rate));
+  let bills = 0;
+  let spent = 0;
+  for (const e of monthEntries) {
+    const part = myPart(e, s.me, disp, rate);
+    if (e.category === 'Bills') bills += part; else spent += part;
   }
+  bills = Math.round(bills);
+  spent = Math.round(spent);
+  const out = debtPaid + bills + spent;
+  const left = income - out;
+  const scale = Math.max(income, out, 1);
+  const pct = (/** @type {number} */ v) => `${Math.max(0, (v / scale) * 100).toFixed(1)}%`;
+  const seg = [[debtPaid, '#FFFFFF', 'Debts'], [bills, '#FFB27A', 'Bills'], [spent, '#B9B6FF', 'Spent']].filter(([v]) => Number(v) > 0);
+  const legend = [['Debts', debtPaid], ['Bills', bills], ['Spent', spent], ...(income > 0 ? [[left < 0 ? 'Over' : 'Left', Math.abs(left)]] : [])];
+  const bar = out > 0 || income > 0 ? `<div class="hbar" role="img" aria-label="${esc(legend.map(([k, v]) => `${k} ${money(s, Number(v), { compact: true })}`).join(', '))}">
+      ${seg.map(([v, c]) => `<span style="width:${pct(Number(v))};background:${c}"></span>`).join('')}${income > 0 && left > 0 ? `<span class="left" style="width:${pct(left)}"></span>` : ''}</div>
+    <div class="hlegend">${legend.map(([k, v]) => `<div>${k}<b>${esc(money(s, Number(v), { compact: true }).replace(/^[$₹]/, ''))}</b></div>`).join('')}</div>` : '';
 
-  const urgent = mostUrgentBill(s.bills.filter((x) => x.by === s.me || x.scope === 'shared'), s.today);
-  const needs = urgent ? `<section class="card" aria-label="Needs you" style="padding:14px 16px">
-      <div class="spread"><div class="row-main"><span class="ico" style="background:var(--${urgent.status.kind === 'overdue' ? 'neg' : 'warn'}-bg);color:var(--${urgent.status.kind === 'overdue' ? 'neg' : 'warn'})">${icon('card')}</span>
-        <div class="ellipsis"><div class="row-title ellipsis">${esc(urgent.bill.name)}</div>
-        <div class="small muted">${esc(formatMoney(convert(urgent.bill.amount, urgent.bill.currency, display(s), s.rate.rate), display(s)))}</div>
-        <div class="small ${urgent.status.kind === 'overdue' ? 'neg' : 'warn'}" style="font-weight:700">${esc(urgent.status.label)} · ${esc(shortDate(urgent.status.dueDate))}</div></div></div>
-      <button type="button" class="btn2" data-action="bill-paid" data-id="${esc(urgent.bill.id)}">Mark paid</button></div></section>` : '';
+  const heroLabel = income > 0 ? (left < 0 ? `Spent more than came in for ${monthName}` : `Left for ${monthName}`) : `Out in ${monthName} so far`;
+  const heroBody = income > 0
+    ? `<div class="num hero-amount">${esc(money(s, Math.abs(left)))}</div><div class="soft small">of ${esc(money(s, income))} income this month</div>`
+    : `<div class="num hero-amount">${esc(money(s, out))}</div><div class="soft small">Add your pay with + to see what’s left.</div>`;
+  const heroFoot = b.hasBudget
+    ? `<div class="hero-foot"><span class="soft" style="font-weight:600">${b.safeToday < 0 ? 'Over today’s amount by' : 'Safe to spend today'}</span>
+        <span><span class="num" style="font-size:17px">${esc(money(s, Math.abs(b.safeToday)))}</span><span class="soft" style="font-weight:600">&#160;&#160;${esc(money(s, b.spentToday, { compact: true }))} spent</span></span></div>`
+    : `<div class="hero-foot"><span class="soft">Set a budget to see what’s safe to spend each day.</span>
+        <button type="button" class="btn2" data-action="go" data-route="profile" style="min-height:44px">Set budget</button></div>`;
+  const hero = `<section class="hero" aria-label="This month">
+      <div class="spread"><span class="soft small" style="font-weight:600">${esc(heroLabel)}</span>${currencyToggle(s)}</div>${heroBody}${bar}${heroFoot}</section>`;
 
   const install = s.showInstall ? `<section class="tint" aria-label="Install Tally"><div class="spread" style="align-items:flex-start">
       <div><div class="row-title" style="color:var(--brand)">Add Tally to your Home Screen</div><p class="small" style="margin:4px 0 0">${esc(s.installHint)}</p></div>
       <button type="button" class="icon-btn" data-action="dismiss-install" aria-label="Dismiss">${icon('close')}</button></div></section>` : '';
 
-  const todays = all.filter((e) => e.date === s.today);
-  const todayTotal = total(todays, display(s), s.rate.rate);
-  const todayCard = `<section class="card" aria-labelledby="today-h"><div class="card-head"><h2 class="h2" id="today-h">Today</h2>
-      ${todays.length ? `<span class="muted num small">${esc(money(s, todayTotal, { sign: todayTotal ? 'expense' : 'none' }))}</span>` : ''}</div>
-      ${todays.length ? todays.map((e) => entryRow(s, e)).join('') : empty('Nothing yet today', 'Tap the <strong>+</strong> button to add what you spend. It takes a few seconds.')}</section>`;
+  const items = dueSoon(s);
+  const firstDebt = items.find((i) => i.kind === 'debt');
+  const dueTotal = items.reduce((sum, i) => sum + i.amount, 0);
+  const dueRows = items.map((i) => `<div class="row">
+      <span class="row-main"><span class="tile ${i.kind === 'bill' ? 'amber' : ''}" aria-hidden="true">${icon(i.kind === 'bill' ? 'Bills' : 'Debt')}</span>
+        <span style="min-width:0"><span class="row-title ellipsis" style="display:block">${esc(i.name)}</span>
+        <span class="row-meta ${i.overdue ? 'neg' : ''}" style="display:block;${i.overdue ? 'font-weight:700' : ''}">${i.overdue ? `Overdue since ${esc(shortDate(i.date))}` : esc(weekdayDay(i.date))}${i.amount ? ` · ${esc(money(s, i.amount))}` : ''}</span></span></span>
+      ${i.kind === 'debt'
+        ? `<button type="button" class="pill-btn ${i === firstDebt ? 'primary' : ''}" data-action="pay-debt" data-id="${esc(i.id)}" aria-label="Pay ${esc(i.name)}">Pay</button>`
+        : `<button type="button" class="pill-btn" data-action="bill-paid" data-id="${esc(i.id)}" aria-label="Mark paid: ${esc(i.name)}">Mark paid</button>`}</div>`).join('');
+  const dueCard = `<section class="grp" aria-labelledby="due-h"><div class="gh"><h2 class="h2" id="due-h">Due soon</h2>${items.length ? `<span class="aside">${esc(money(s, dueTotal))} in 2 weeks</span>` : ''}</div>
+      <div class="card list">${dayStrip(s, items)}${items.length ? `<div style="border-top:1px solid var(--line)">${dueRows}</div>` : `<p class="muted small" style="margin:0;padding:0 16px 14px">Nothing due in the next two weeks.</p>`}</div></section>`;
 
-  const month = monthOf(s.today);
-  const monthEntries = inMonth(all, month);
-  const personal = total(monthEntries.filter((e) => e.scope === 'mine' && e.by === s.me), display(s), s.rate.rate);
-  const sharedTotal = total(monthEntries.filter((e) => e.scope === 'shared'), display(s), s.rate.rate);
-  const counted = monthEntries.filter((e) => myPart(e, s.me, display(s), s.rate.rate) > 0);
-  const top = topCategories(counted.filter((e) => e.scope === 'mine'), display(s), s.rate.rate);
-  const max = top[0]?.amount || 1;
-  const monthCard = `<section class="card card-pad" aria-labelledby="month-h"><h2 class="h2" id="month-h">${esc(monthLabel(month).split(' ')[0])} so far</h2>
-      <div class="stat-grid">
-        <button type="button" class="btn2 stat" data-action="go-activity" data-filter="personal"><span class="eyebrow">Personal</span><span class="num">${esc(money(s, personal, { compact: true }))}</span></button>
-        <button type="button" class="btn2 stat" data-action="go" data-route="shared"><span class="eyebrow">Shared (household)</span><span class="num">${esc(money(s, sharedTotal, { compact: true }))}</span></button></div>
-      ${top.length ? `<div class="stack" style="gap:10px;margin-top:14px">${top.map((t) => `<div><div class="spread small"><span style="font-weight:700">${esc(t.category)}</span><span class="num">${esc(money(s, t.amount, { compact: true }))}</span></div>
-        <div class="bar" role="img" aria-label="${esc(t.category)} ${Math.round((t.amount / max) * 100)} percent of top category" style="margin-top:6px"><span style="width:${Math.max(4, Math.round((t.amount / max) * 100))}%;background:var(--p1)"></span></div></div>`).join('')}</div>` : ''}</section>`;
+  const rows = debtRows(s).filter((r) => r.left > 0).sort((a, b2) => b2.leftShown - a.leftShown);
+  const totals = debtTotals(visibleDebts(s.debts, s.me), s.entries, disp, rate, month);
+  const maxLeft = rows[0]?.leftShown || 1;
+  const debtCard = `<section class="grp" aria-labelledby="debt-h"><div class="gh"><h2 class="h2" id="debt-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totals.left))} left</span>` : ''}</div>
+      ${rows.length ? `<div class="card card-pad"><div class="debt-bars">${rows.slice(0, 5).map((r) => `<span class="name ellipsis">${esc(r.debt.name)}</span>
+          <span class="track" role="img" aria-label="${esc(r.debt.name)} ${esc(money(s, r.leftShown))} left"><span style="width:${Math.max(3, Math.round((r.leftShown / maxLeft) * 100))}%"></span></span>
+          <span class="num" style="text-align:right">${esc(money(s, r.leftShown, { compact: true }))}</span>`).join('')}</div>
+        <div class="spread" style="margin-top:12px;padding-top:4px;border-top:1px solid var(--line)"><span class="muted small">Paid this month <strong class="num pos">${esc(money(s, totals.paid))}</strong></span>
+          <button type="button" class="link" data-action="go" data-route="plan">All debts${rows.length > 5 ? ` (${rows.length})` : ''}</button></div></div>`
+      : `<div class="card card-pad"><p class="muted small" style="margin:0 0 10px">Track a credit card, a loan or money you owe someone. Log payments and watch the balance fall.</p>
+          <button type="button" class="btn2" data-action="new-debt">Add a debt</button></div>`}</section>`;
 
-  return `<div class="stack view-enter">
+  return `<div class="stack home view-enter">
     <header class="spread"><div class="ellipsis"><div class="eyebrow">${esc(longDate(s.today))}</div><h1 class="h1 ellipsis">${esc(greeting(s.hour))}, ${esc(name)}</h1></div>
       <button type="button" class="avatar" data-action="go" data-route="profile" aria-label="Profile and settings">${esc(initial(s.profile.name, s.me))}</button></header>
-    <section class="hero" aria-label="Today’s budget">${hero}</section>
-    ${needs}${install}${todayCard}${monthCard}</div>`;
+    ${hero}${install}${dueCard}${debtCard}</div>`;
+}
+
+/** @param {ViewState} s */
+export function planView(s) {
+  const disp = display(s);
+  const b = budgetView({ entries: active(s.entries), me: s.me, budget: s.profile.monthlyBudget, budgetCurrency: s.profile.homeCurrency, display: disp, rate: s.rate.rate, today: s.today });
+  const payday = nextPayday(s.profile.payFrequency, s.profile.payAnchor, s.today);
+  const sorted = sortBills(visibleBills(s), s.today);
+  const { d: dayOfMonth } = parseIso(s.today);
+  const monthDays = daysInMonth(Number(s.today.slice(0, 4)), Number(s.today.slice(5, 7)));
+
+  const paydayTile = `<button type="button" class="card" style="text-align:left;border:0" data-action="go" data-route="profile">
+      <div class="muted small" style="font-weight:600">Next payday</div>
+      ${payday ? `<div class="big">${esc(weekdayDay(payday))}</div><div class="muted small">${(() => { const d = daysBetween(s.today, payday); return d === 0 ? 'Today' : `in ${d} day${d === 1 ? '' : 's'}`; })()}</div>` : '<div class="big" style="font-size:17px">Not set</div><div class="muted small">Tap to add</div>'}</button>`;
+  const used = b.hasBudget ? Math.min(100, Math.round((b.spentMonth / b.budget) * 100)) : 0;
+  const paceAt = Math.round((dayOfMonth / monthDays) * 100);
+  const budgetTile = `<button type="button" class="card" style="text-align:left;border:0" data-action="go" data-route="profile">
+      <div class="muted small" style="font-weight:600">Monthly budget</div>
+      ${b.hasBudget ? `<div class="big">${esc(money(s, b.spentMonth, { compact: true }))}<span class="muted small" style="font-weight:600"> / ${esc(money(s, b.budget, { compact: true }).replace(/^[$₹]/, ''))}</span></div>
+        <div class="pace" role="img" aria-label="${used} percent spent, ${paceAt} percent of the month gone"><span style="width:${used}%;background:${b.status === 'over' ? 'var(--neg)' : b.status === 'ahead' ? 'var(--amber)' : 'var(--pos)'}"></span><i style="left:${paceAt}%"></i></div>
+        <div class="muted small" style="margin-top:6px">${b.status === 'over' ? 'Over budget' : b.status === 'ahead' ? 'Running ahead' : 'On pace'}</div>` : '<div class="big" style="font-size:17px">Not set</div><div class="muted small">Tap to add</div>'}</button>`;
+
+  const rows = debtRows(s).sort((a, c) => ({ overdue: 0, today: 1, soon: 2, upcoming: 3, paid: 4, nodate: 5, cleared: 6 }[a.status.kind] - { overdue: 0, today: 1, soon: 2, upcoming: 3, paid: 4, nodate: 5, cleared: 6 }[c.status.kind]) || a.status.days - c.status.days);
+  const primaryId = rows.find((r) => ['overdue', 'today', 'soon', 'upcoming'].includes(r.status.kind))?.debt.id;
+  const totalLeft = rows.reduce((sum, r) => sum + r.leftShown, 0);
+  const debtList = rows.map(({ debt, left, leftShown, status }) => {
+    const [tone, ic] = DEBT_TILE[debt.type];
+    const est = estimate(left, debt.apr, debt.minimum);
+    const when = status.kind === 'nodate' ? 'No fixed date' : status.kind === 'cleared' ? 'Paid off' : status.kind === 'paid' ? `Next ${weekdayDay(status.dueDate)}` : weekdayDay(status.dueDate);
+    const meta = [when, debt.minimum ? `min ${shown(s, debt.minimum, debt.currency)}` : '', debt.currency !== disp ? formatMoney(left, debt.currency, { compact: true }) : ''].filter(Boolean).join(' · ');
+    const flags = [];
+    if (status.kind === 'overdue') flags.push(['neg', 'alert', status.label]);
+    if (est && !est.covers) flags.push(['neg', 'alert', 'Minimum doesn’t cover interest']);
+    if (status.kind === 'paid') flags.push(['pos', 'check', 'Paid this month']);
+    const paidOff = debt.balance > 0 ? Math.round(((debt.balance - left) / debt.balance) * 100) : 0;
+    return `<div class="row">
+      <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-debt" data-id="${esc(debt.id)}">
+        <span class="tile ${tone}" aria-hidden="true">${icon(ic)}</span>
+        <span style="min-width:0;flex:1"><span class="spread"><span class="row-title ellipsis">${esc(debt.name)}</span><span class="row-amt">${esc(money(s, leftShown))}</span></span>
+          <span class="row-meta wrap-meta" style="display:block">${esc(meta)}${debt.by !== s.me ? ` · ${esc(personName(s, debt.by))}’s` : ''}</span>
+          ${flags.map(([c, i, t]) => `<span class="flag ${c}">${icon(i, { size: 14, stroke: 2.6 })}${esc(t)}</span>`).join('')}
+          ${!flags.length && paidOff > 0 ? `<span class="bar" style="display:block;margin-top:7px;height:6px" role="img" aria-label="${paidOff} percent paid off"><span style="width:${paidOff}%;background:var(--pos)"></span></span>` : ''}</span></button>
+      ${status.kind === 'cleared' ? '' : `<button type="button" class="pill-btn ${debt.id === primaryId ? 'primary' : ''}" data-action="pay-debt" data-id="${esc(debt.id)}" aria-label="Pay ${esc(debt.name)}">Pay</button>`}</div>`;
+  }).join('');
+
+  const billRows = sorted.map(({ bill, status }) => {
+    const paid = status.kind === 'paid';
+    const meta = `${weekdayDay(status.dueDate)}${bill.currency !== disp ? ` · ${formatMoney(bill.amount, bill.currency, { compact: true })}` : ''}${bill.scope === 'shared' ? ' · Shared' : ''}${bill.by !== s.me ? ` · ${personName(s, bill.by)}’s` : ''}`;
+    const tone = status.kind === 'overdue' ? 'neg' : paid ? 'pos' : status.kind === 'soon' || status.kind === 'today' ? 'warn' : '';
+    return `<div class="row">
+      <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-bill" data-id="${esc(bill.id)}">
+        <span class="tile amber" aria-hidden="true">${icon('Bills')}</span>
+        <span style="min-width:0;flex:1"><span class="spread"><span class="row-title ellipsis">${esc(bill.name)}</span><span class="row-amt">${esc(shown(s, bill.amount, bill.currency))}</span></span>
+          <span class="row-meta wrap-meta" style="display:block">${esc(meta)}</span>
+          ${tone ? `<span class="flag ${tone}">${icon(paid ? 'check' : 'alert', { size: 14, stroke: 2.6 })}${esc(status.label)}</span>` : ''}</span></button>
+      <button type="button" class="pill-btn" data-action="bill-paid" data-id="${esc(bill.id)}" aria-pressed="${paid}" aria-label="${paid ? `Paid: ${esc(bill.name)}. Tap to undo` : `Mark paid: ${esc(bill.name)}`}">${paid ? 'Paid' : 'Mark paid'}</button></div>`;
+  }).join('');
+  const billsMonthly = sorted.reduce((sum, { bill }) => sum + convert(bill.amount, bill.currency, disp, s.rate.rate), 0);
+
+  return `<div class="stack plan view-enter">
+    <header><div class="eyebrow">${esc(monthLabel(monthOf(s.today)))}</div><h1 class="h1">Plan</h1></header>
+    <div class="tiles">${paydayTile}${budgetTile}</div>
+    <section class="grp" aria-labelledby="debts-h"><div class="gh"><h2 class="h2" id="debts-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totalLeft))} left</span>` : ''}</div>
+      <div class="card list">${debtList}
+        <button type="button" class="row add-row" data-action="new-debt"><span class="row-main"><span class="tile soft" aria-hidden="true">${icon('plus')}</span>Add a debt</span></button></div></section>
+    <section class="grp" aria-labelledby="bills-h"><div class="gh"><h2 class="h2" id="bills-h">Monthly bills</h2>${sorted.length ? `<span class="aside">${esc(money(s, billsMonthly))} a month</span>` : ''}</div>
+      <div class="card list">${billRows || `<p class="muted small" style="margin:0;padding:14px 16px 4px">Add rent, phone, insurance or subscriptions and Tally will remind you before they’re due.</p>`}
+        <button type="button" class="row add-row" data-action="new-bill"><span class="row-main"><span class="tile soft" aria-hidden="true">${icon('plus')}</span>Add a bill</span></button></div></section>
+  </div>`;
 }
 
 /** @param {string} title @param {string} month @param {string} min @param {string} max @param {string} action */
@@ -266,20 +379,37 @@ export function activityView(s) {
   const { min, max } = monthBounds(s);
   const list = applyFilter(inMonth(active(s.entries), month), filter);
   const groups = groupByDay(list);
-  const chips = [['all', 'All'], ['personal', 'Personal'], ['shared', 'Shared'], ['income', 'Income']]
+  const chips = [['all', 'All'], ['personal', 'Personal'], ['shared', 'Shared'], ['debts', 'Debts'], ['income', 'Income']]
     .map(([v, l]) => `<button type="button" class="chip" data-action="filter" data-filter="${v}" aria-pressed="${filter === v}">${l}</button>`).join('');
-  const emptyText = { all: 'No entries this month.', personal: 'No personal spending this month.', shared: 'No shared costs this month.', income: 'No income recorded this month.' }[filter];
-  const spent = total(list, display(s), s.rate.rate);
+  const emptyText = { all: 'No entries this month.', personal: 'No personal spending this month.', shared: 'No shared costs this month.', income: 'No income recorded this month.', debts: 'No debt payments this month.' }[filter];
+  const spent = filter === 'debts' ? debtPaidTotal(list, display(s), s.rate.rate) : total(list, display(s), s.rate.rate);
+  const trend = filter === 'debts' ? debtTrend(s, month) : '';
   return `<div class="stack view-enter">
     <header class="spread"><h1 class="h1">Activity</h1><span class="muted small num" aria-label="Spent in this view">${list.length ? esc(money(s, spent, { sign: spent ? 'expense' : 'none' })) : ''}</span></header>
     ${monthNav(monthLabel(month), month, min, max, 'activity-month')}
     <div class="chips scroll" role="group" aria-label="Filter">${chips}</div>
+    ${trend}
     ${groups.length ? groups.map((g) => {
-      const dayTotal = total(g.entries, display(s), s.rate.rate);
+      const dayTotal = filter === 'debts' ? debtPaidTotal(g.entries, display(s), s.rate.rate) : total(g.entries, display(s), s.rate.rate);
       return `<section class="card" aria-label="${esc(dayLabel(g.date, s.today))}"><div class="card-head"><h2 class="h2" style="font-size:15px">${esc(dayLabel(g.date, s.today))}</h2>
         <span class="muted num small">${dayTotal ? esc(money(s, dayTotal, { sign: 'expense' })) : ''}</span></div>${g.entries.map((e) => entryRow(s, e)).join('')}</section>`;
     }).join('') : `<section class="card">${empty(emptyText, 'Tap <strong>+</strong> to add one.')}</section>`}
   </div>`;
+}
+
+/** Debt paid in the four months ending at `month`, as labelled bars. @param {ViewState} s @param {string} month */
+function debtTrend(s, month) {
+  const all = active(s.entries);
+  const months = [-3, -2, -1, 0].map((k) => shiftMonth(month, k));
+  const sums = months.map((m) => Math.round(debtPaidTotal(inMonth(all, m), display(s), s.rate.rate)));
+  const max = Math.max(1, ...sums);
+  const name = (/** @type {string} */ m) => monthLabel(m).split(' ')[0].slice(0, 3);
+  return `<section class="card card-pad" aria-label="Paid towards debts">
+    <div class="spread" style="align-items:baseline"><div><div class="muted small" style="font-weight:600">Paid towards debts</div><div class="num" style="font-size:30px;line-height:1.15">${esc(money(s, sums[3]))}</div></div>
+      <span class="muted small">Not counted as spending</span></div>
+    <div class="months" role="img" aria-label="${esc(months.map((m, i) => `${name(m)} ${money(s, sums[i], { compact: true })}`).join(', '))}">
+      ${sums.map((v, i) => `<div class="${i === 3 ? 'now' : ''}"><span class="num">${esc(money(s, v, { compact: true }).replace(/^[$₹]/, ''))}</span><i style="height:${Math.round((v / max) * 80)}px"></i></div>`).join('')}</div>
+    <div class="months-x">${months.map((m, i) => `<span style="${i === 3 ? 'color:var(--brand);font-weight:800' : ''}">${name(m)}</span>`).join('')}</div></section>`;
 }
 
 /** @param {ViewState} s */
@@ -310,42 +440,6 @@ export function sharedView(s) {
     <section class="card" aria-labelledby="sh-list"><div class="card-head"><h2 class="h2" id="sh-list">Shared costs</h2></div>
       ${list.length ? list.map((e) => entryRow(s, e, { showDate: true })).join('') : empty('No shared costs yet', 'When you add an expense, choose <strong>Shared</strong> to split it.')}</section>
     <p class="muted small" style="margin:0;text-align:center">${icon('lock', { size: 14 })} Everyone in your household can see all entries.</p>
-  </div>`;
-}
-
-/** @param {ViewState} s */
-export function planView(s) {
-  const b = budgetView({ entries: active(s.entries), me: s.me, budget: s.profile.monthlyBudget, budgetCurrency: s.profile.homeCurrency, display: display(s), rate: s.rate.rate, today: s.today });
-  const payday = nextPayday(s.profile.payFrequency, s.profile.payAnchor, s.today);
-  const visibleBills = s.bills.filter((x) => x.by === s.me || x.scope === 'shared');
-  const sorted = sortBills(visibleBills, s.today);
-  const budgetCard = b.hasBudget ? `<section class="card card-pad stack" aria-labelledby="bud-h">
-      <div class="spread"><h2 class="h2" id="bud-h">Monthly budget</h2><button type="button" class="link" data-action="go" data-route="profile">Edit</button></div>
-      <div class="bar" style="height:10px" role="img" aria-label="${Math.round(Math.min(1, b.spentMonth / b.budget) * 100)} percent of budget used"><span style="width:${Math.min(100, Math.round((b.spentMonth / b.budget) * 100))}%;background:${b.status === 'over' ? 'var(--neg)' : b.status === 'ahead' ? '#C77800' : 'var(--pos)'}"></span></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-        ${[['Budget', money(s, b.budget, { compact: true })], ['Spent', money(s, b.spentMonth, { compact: true })], [b.remaining < 0 ? 'Over by' : 'Left', money(s, Math.abs(b.remaining), { compact: true })]]
-          .map(([k, v]) => `<div><div class="eyebrow">${k}</div><div class="num ${k === 'Over by' ? 'neg' : ''}" style="font-size:17px">${esc(v)}</div></div>`).join('')}</div>
-      <p class="muted small" style="margin:0">${b.overBudget ? 'You’ve gone past this month’s budget.' : `About ${esc(money(s, b.allowanceToday))} a day for the ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'} left.`} Shared costs count half.</p></section>`
-    : `<section class="tint stack" style="gap:10px"><div class="row-title" style="color:var(--brand)">Set a monthly budget</div><p class="small" style="margin:0">Tally will show what’s safe to spend each day and warn you before you run short.</p><button type="button" class="btn2" data-action="go" data-route="profile" style="align-self:flex-start">Set budget</button></section>`;
-  const paydayCard = payday ? `<section class="card" style="padding:14px 16px"><div class="spread"><div class="row-main"><span class="ico">${icon('calendar')}</span><div><div class="row-title">Next payday</div><div class="row-meta">${s.profile.payFrequency === 'biweekly' ? 'Every 2 weeks' : 'Monthly'}</div></div></div>
-      <div style="text-align:right"><div class="row-title">${esc(shortDate(payday))}</div><div class="row-meta">${(() => { const d = daysBetween(s.today, payday); return d === 0 ? 'Today' : `in ${d} day${d === 1 ? '' : 's'}`; })()}</div></div></div></section>` : '';
-  const billRows = sorted.map(({ bill, status }) => {
-    const paid = status.kind === 'paid';
-    const meta = `Due ${shortDate(status.dueDate)}${bill.scope === 'shared' ? ' · Shared' : ''}${bill.by !== s.me ? ` · ${personName(s, bill.by)}’s` : ''}`;
-    const amount = formatMoney(convert(bill.amount, bill.currency, display(s), s.rate.rate), display(s));
-    return `<div class="row" style="padding-right:12px">
-      <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-bill" data-id="${esc(bill.id)}">
-        <span class="ico">${icon('Bills')}</span><span style="min-width:0"><span class="row-title ellipsis" style="display:block">${esc(bill.name)}</span>
-        <span class="row-meta wrap-meta" style="display:block">${esc(meta)}</span><span class="tag ${BILL_TAG[status.kind]}" style="margin-top:4px">${esc(status.label)}</span></span></button>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="row-amt">${esc(amount)}</span>
-        <button type="button" class="btn2" style="min-height:36px;padding:0 12px;font-size:13px" data-action="bill-paid" data-id="${esc(bill.id)}" aria-pressed="${paid}">${paid ? `${icon('check', { size: 14 })} Paid` : 'Mark paid'}</button></div></div>`;
-  }).join('');
-  return `<div class="stack view-enter">
-    <header><h1 class="h1">Plan</h1><p class="muted small" style="margin:4px 0 0">${esc(monthLabel(monthOf(s.today)))}</p></header>
-    ${budgetCard}${paydayCard}
-    <section class="card" aria-labelledby="bills-h"><div class="card-head" style="align-items:center"><h2 class="h2" id="bills-h">Monthly bills</h2>
-      <button type="button" class="btn2" data-action="new-bill">+ Add bill</button></div>
-      ${billRows || empty('No bills yet', 'Add rent, phone, cards or insurance and Tally will remind you before they’re due.')}</section>
   </div>`;
 }
 

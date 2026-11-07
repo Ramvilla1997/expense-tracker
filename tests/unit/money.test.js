@@ -22,14 +22,14 @@ describe('minorToInput', () => {
 });
 
 describe('formatMoney', () => {
-  it('formats CAD with Canadian grouping', () => expect(formatMoney(123456, 'CAD')).toBe('CAD 1,234.56'));
+  it('formats CAD with Canadian grouping', () => expect(formatMoney(123456, 'CAD')).toBe('$1,234.56'));
   it('formats INR with Indian grouping', () => expect(formatMoney(12345678, 'INR')).toBe('₹1,23,456.78'));
   it('signs expenses and income', () => {
-    expect(formatMoney(500, 'CAD', { sign: 'expense' })).toBe('−CAD 5.00');
+    expect(formatMoney(500, 'CAD', { sign: 'expense' })).toBe('−$5.00');
     expect(formatMoney(500, 'INR', { sign: 'income' })).toBe('+₹5.00');
   });
-  it('shows negatives with a minus in auto mode', () => expect(formatMoney(-250, 'CAD')).toBe('−CAD 2.50'));
-  it('compacts without decimals', () => expect(formatMoney(123456, 'CAD', { compact: true })).toBe('CAD 1,235'));
+  it('shows negatives with a minus in auto mode', () => expect(formatMoney(-250, 'CAD')).toBe('−$2.50'));
+  it('compacts without decimals', () => expect(formatMoney(123456, 'CAD', { compact: true })).toBe('$1,235'));
 });
 
 describe('convert', () => {

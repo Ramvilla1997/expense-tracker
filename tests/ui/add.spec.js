@@ -5,7 +5,7 @@ const fab = (page) => page.getByRole('button', { name: 'Add an expense or income
 
 test.describe('Add sheet', () => {
   test('adds an expense with the keypad in a few taps', async ({ page }) => {
-    await launch(page);
+    await launch(page, member(), { hash: '#/activity' });
     const sheet = await openAdd(page);
     await expect(sheet.getByRole('heading', { name: 'Add an entry' })).toBeVisible();
     const save = sheet.getByRole('button', { name: 'Save expense' });
@@ -18,12 +18,12 @@ test.describe('Add sheet', () => {
     await expect(sheet.locator('#amount-out')).toHaveText('12.5'); // survives re-render
     await save.click();
     await expect(sheet).toBeHidden();
-    await expect(page.getByRole('status').filter({ hasText: 'Saved CAD 12.50' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Saved $12.50' })).toBeVisible();
     await expect(fab(page)).toBeFocused();
     const entries = Object.values((await mockState(page)).data.entries);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ type: 'expense', amount: 1250, currency: 'CAD', category: 'Transport', scope: 'shared', note: 'Gas', by: ME, date: '2026-11-11', deleted: false });
-    await expect(page.getByRole('region', { name: 'Today' }).getByRole('button', { name: /Gas.*Transport · Shared.*CAD 12\.50/ })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Today' }).getByRole('button', { name: /Gas.*Transport · Shared.*\$12\.50/ })).toBeVisible();
   });
 
   test('keypad rules: leading zero, one decimal point, two decimals, delete', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('Add sheet', () => {
   });
 
   test('income has its own categories and is always personal', async ({ page }) => {
-    await launch(page);
+    await launch(page, member(), { hash: '#/activity' });
     const sheet = await openAdd(page);
     await sheet.getByRole('button', { name: 'Income' }).click();
     await expect(sheet.getByRole('button', { name: 'Salary' })).toHaveAttribute('aria-pressed', 'true');
@@ -79,18 +79,18 @@ test.describe('Add sheet', () => {
     await typeAmount(page, '2000');
     await sheet.getByRole('button', { name: 'Save income' }).click();
     expect(Object.values((await mockState(page)).data.entries)[0]).toMatchObject({ type: 'income', category: 'Salary', scope: 'mine', amount: 200000 });
-    await expect(page.getByText('+CAD 2,000.00')).toBeVisible();
+    await expect(page.getByText('+$2,000.00')).toBeVisible();
   });
 
   test('currency can be switched per entry', async ({ page }) => {
-    await launch(page);
+    await launch(page, member(), { hash: '#/activity' });
     const sheet = await openAdd(page);
     await sheet.getByRole('button', { name: /Currency CAD/ }).click();
     await expect(sheet.getByRole('button', { name: /Currency INR/ })).toBeVisible();
     await typeAmount(page, '612');
     await sheet.getByRole('button', { name: 'Save expense' }).click();
     expect(Object.values((await mockState(page)).data.entries)[0]).toMatchObject({ currency: 'INR', amount: 61200 });
-    await expect(page.getByRole('region', { name: 'Today' }).locator('.row-amt')).toHaveText('−CAD 10.00');
+    await expect(page.getByRole('region', { name: 'Today' }).locator('.row-amt')).toHaveText('−$10.00');
     await expect(page.getByRole('region', { name: 'Today' }).getByText('₹612.00')).toBeVisible();
   });
 
@@ -149,7 +149,7 @@ test.describe('Add sheet', () => {
   });
 
   test('saving offline-style (slow server) shows "Syncing" until confirmed', async ({ page }) => {
-    await launch(page, { ...member(), ackDelay: 1500 });
+    await launch(page, { ...member(), ackDelay: 1500 }, { hash: '#/activity' });
     const sheet = await openAdd(page);
     await typeAmount(page, '3');
     await sheet.getByRole('button', { name: 'Save expense' }).click();
@@ -170,7 +170,7 @@ test.describe('Add sheet', () => {
 test.describe('edit, delete and view', () => {
   test('edits my own entry and keeps its original currency', async ({ page }) => {
     const [id, data] = entry({ amount: 61200, currency: 'INR', note: 'Groceries' });
-    await launch(page, member({ entries: { [id]: data } }));
+    await launch(page, member({ entries: { [id]: data } }), { hash: '#/activity' });
     await page.getByRole('button', { name: /Groceries/ }).click();
     const sheet = page.getByRole('dialog');
     await expect(sheet.getByRole('heading', { name: 'Edit entry' })).toBeVisible();
@@ -184,7 +184,7 @@ test.describe('edit, delete and view', () => {
 
   test('delete asks first and can be undone', async ({ page }) => {
     const [id, data] = entry({ note: 'Snacks' });
-    await launch(page, member({ entries: { [id]: data } }));
+    await launch(page, member({ entries: { [id]: data } }), { hash: '#/activity' });
     await page.getByRole('button', { name: /Snacks/ }).click();
     const sheet = page.getByRole('dialog');
     await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -199,7 +199,7 @@ test.describe('edit, delete and view', () => {
 
   test("someone else's entry opens read-only with who to ask", async ({ page }) => {
     const [id, data] = entry({ by: BRO, scope: 'shared', note: 'Electricity', amount: 300000, currency: 'INR' });
-    await launch(page, member({ entries: { [id]: data } }));
+    await launch(page, member({ entries: { [id]: data } }), { hash: '#/activity' });
     await page.getByRole('button', { name: /Electricity/ }).click();
     const sheet = page.getByRole('dialog');
     await expect(sheet.getByRole('heading', { name: 'Expense details' })).toBeVisible();
@@ -211,7 +211,7 @@ test.describe('edit, delete and view', () => {
 
   test('an entry deleted on another device closes the open editor', async ({ page }) => {
     const [id, data] = entry({ note: 'Taxi' });
-    await launch(page, member({ entries: { [id]: data } }));
+    await launch(page, member({ entries: { [id]: data } }), { hash: '#/activity' });
     await page.getByRole('button', { name: /Taxi/ }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.evaluate((x) => window.__mock.remoteSet('entries', x, { deleted: true }), id);
@@ -220,8 +220,8 @@ test.describe('edit, delete and view', () => {
   });
 
   test('legacy v1 entries without currency or type still show and edit as CAD expenses', async ({ page }) => {
-    await launch(page, member({ entries: { old: { amount: 500, category: 'Food', note: 'Old one', scope: 'mine', by: ME, date: '2026-11-11', deleted: false } } }));
-    await page.getByRole('button', { name: /Old one.*CAD 5\.00/ }).click();
+    await launch(page, member({ entries: { old: { amount: 500, category: 'Food', note: 'Old one', scope: 'mine', by: ME, date: '2026-11-11', deleted: false } } }), { hash: '#/activity' });
+    await page.getByRole('button', { name: /Old one.*\$5\.00/ }).click();
     await expect(page.getByRole('dialog').getByRole('button', { name: /Currency CAD/ })).toBeVisible();
   });
 });

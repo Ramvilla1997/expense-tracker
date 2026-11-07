@@ -1,6 +1,7 @@
 // @ts-check
-import { normalizeEntry, validateDraft, EXPENSE_CATEGORIES, INCOME_CATEGORIES, canEdit } from './core/entries.js';
+import { normalizeEntry, validateDraft, EXPENSE_CATEGORIES, INCOME_CATEGORIES, DEBT_CATEGORY, canEdit } from './core/entries.js';
 import { normalizeBill, validateBill, payableMonth, billStatus } from './core/bills.js';
+import { normalizeDebt, validateDebt, balanceLeft, estimate, paymentsFor, debtTypeLabel } from './core/debts.js';
 import { normalizeProfile, validateProfile, guessCurrency, normEmail } from './core/profile.js';
 import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js';
 import { applyKey, keyFromKeyboard } from './core/keypad.js';
@@ -8,9 +9,10 @@ import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
 import { toCsv } from './core/text.js';
 import * as V from './ui/views.js';
-import { entrySheet, billSheet, amountDisplay, fitClass } from './ui/sheets.js';
+import { entrySheet, billSheet, debtSheet, amountDisplay, fitClass } from './ui/sheets.js';
+import { esc } from './core/text.js';
 
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
 const ROUTES = ['home', 'activity', 'shared', 'plan', 'profile'];
 const INSTALL_KEY = 'tally.installDismissed';
 const SIGNED_OUT_KEY = 'tally.signedOut';
@@ -40,6 +42,7 @@ export function startApp(backend, options = {}) {
     profile: null,
     entries: [],
     bills: [],
+    debts: [],
     rate: readSavedRate(storage),
     route: routeFromHash(),
     activity: { month: monthOf(todayIso()), filter: 'all' },
@@ -65,6 +68,7 @@ export function startApp(backend, options = {}) {
       members: S.members,
       entries: S.entries,
       bills: S.bills,
+      debts: S.debts,
       rate: S.rate,
       today: todayIso(now),
       hour: now.getHours(),
@@ -209,6 +213,11 @@ export function startApp(backend, options = {}) {
       S.bills = docs.map((d) => normalizeBill(d.id, d.data)).filter(Boolean);
       refresh();
     }, onError);
+    // Debts are newer than the rest: if this household's rules don't allow them yet, keep the app working without them.
+    backend.watch('debts', (/** @type {any[]} */ docs) => {
+      S.debts = docs.map((d) => normalizeDebt(d.id, d.data)).filter(Boolean);
+      refresh();
+    }, (/** @type {any} */ err) => { console.warn('Debts unavailable', err?.code); S.debts = []; S.debtsBlocked = err?.code === 'permission-denied'; refresh(); });
     backend.watch('profiles', (/** @type {any[]} */ docs) => {
       S.profiles = new Map();
       for (const d of docs) {
@@ -250,6 +259,15 @@ export function startApp(backend, options = {}) {
 
   /** @param {any} draft */
   function openSheet(draft) {
+    // Moving from one sheet to another (a debt to its Pay sheet) swaps content in place, keeping one history entry.
+    if (S.sheet) {
+      S.sheet = draft;
+      lastSheetHtml = '';
+      renderSheet();
+      sheetRoot.scrollTop = 0;
+      sheetRoot.focus();
+      return;
+    }
     S.sheetOpener = document.activeElement;
     S.sheet = draft;
     lastSheetHtml = '';
@@ -259,14 +277,14 @@ export function startApp(backend, options = {}) {
     document.body.style.overflow = 'hidden';
     requestAnimationFrame(() => { sheetRoot.classList.add('open'); backdrop.classList.add('open'); });
     history.pushState({ sheet: true }, '', location.hash || '#/home');
-    if (draft.kind === 'bill') /** @type {HTMLElement|null} */ (sheetRoot.querySelector('input[name="name"]'))?.focus();
+    if ((draft.kind === 'bill' || draft.kind === 'debt') && draft.mode === 'add') /** @type {HTMLElement|null} */ (sheetRoot.querySelector('input[name="name"]'))?.focus();
     else sheetRoot.focus();
   }
 
   let lastSheetHtml = '';
   function renderSheet() {
     if (!S.sheet) return;
-    const html = S.sheet.kind === 'entry' ? entrySheet(S.sheet, todayIso()) : billSheet(S.sheet);
+    const html = S.sheet.kind === 'entry' ? entrySheet(S.sheet, todayIso()) : S.sheet.kind === 'debt' ? debtSheet(S.sheet, todayIso()) : billSheet(S.sheet);
     // A live update that changes nothing must not replace the keypad under the finger.
     if (html === lastSheetHtml) return;
     lastSheetHtml = html;
@@ -314,6 +332,8 @@ export function startApp(backend, options = {}) {
         category: 'Food', date: today, scope: 'mine', note: '', author: '', error: '', confirmDiscard: false, confirmDelete: false, dirty: false });
     }
     const mine = canEdit(entry, S.user.email);
+    const paidDebt = entry.debtId ? S.debts.find((/** @type {any} */ x) => x.id === entry.debtId) : null;
+    if (entry.debtId && mine) return openPay(paidDebt, entry);
     openSheet({ kind: 'entry', mode: mine ? 'edit' : 'view', id: entry.id, type: entry.type, amountText: minorToInput(entry.amount), currency: entry.currency,
       category: entry.category, date: entry.date, scope: entry.scope, note: entry.note, author: V.personName(viewState(), entry.by, { you: false }),
       error: '', confirmDiscard: false, confirmDelete: false, dirty: false });
@@ -323,14 +343,15 @@ export function startApp(backend, options = {}) {
     const d = S.sheet;
     readSheetInputs();
     const amount = parseAmount(d.amountText);
-    const draft = { type: d.type, amount, category: d.category, date: d.date, note: d.note.trim(), scope: d.type === 'income' ? 'mine' : d.scope };
+    const draft = { type: d.type, amount, category: d.category, date: d.date, note: d.note.trim(), scope: d.type === 'income' ? 'mine' : d.scope, ...(d.debtId ? { debtId: d.debtId } : {}) };
     const error = validateDraft(draft, todayIso());
     if (error) { d.error = error; renderSheet(); return; }
     const isNew = d.mode === 'add';
     const data = { ...draft, amount, currency: d.currency, by: S.user.email, deleted: false, ...(isNew ? { clientCreatedAt: Date.now() } : {}) };
     background(backend.put('entries', d.id, data, isNew), 'Couldn’t save that entry.');
     closeSheet({ force: true });
-    toast(isNew ? `Saved ${formatMoney(/** @type {number} */ (amount), d.currency)}` : 'Changes saved');
+    if (d.debtId) toast(isNew ? `Paid ${formatMoney(/** @type {number} */ (amount), d.currency)} to ${d.debtName}` : 'Payment updated');
+    else toast(isNew ? `Saved ${formatMoney(/** @type {number} */ (amount), d.currency)}` : 'Changes saved');
   }
 
   function readSheetInputs() {
@@ -340,6 +361,13 @@ export function startApp(backend, options = {}) {
     if (d.kind === 'entry') {
       d.note = val('note') ?? d.note;
       d.date = val('date') ?? d.date;
+    } else if (d.kind === 'debt') {
+      d.name = val('name') ?? d.name;
+      d.balanceText = val('balance') ?? d.balanceText;
+      d.balanceDate = val('balanceDate') ?? d.balanceDate;
+      d.minimumText = val('minimum') ?? d.minimumText;
+      d.dueDayText = val('dueDay') ?? d.dueDayText;
+      d.aprText = val('apr') ?? d.aprText;
     } else {
       d.name = val('name') ?? d.name;
       d.amountText = val('amount') ?? d.amountText;
@@ -352,6 +380,97 @@ export function startApp(backend, options = {}) {
     background(backend.setDeleted('entries', id, true), 'Couldn’t delete that entry.');
     closeSheet({ force: true });
     toast('Entry deleted', { label: 'Undo', run: () => background(backend.setDeleted('entries', id, false), 'Couldn’t restore that entry.') });
+  }
+
+  // ---------- debts ----------
+
+  /**
+   * Opens the Pay sheet for a debt, or edits an existing payment.
+   * @param {any} debt @param {any} [entry]
+   */
+  function openPay(debt, entry) {
+    if (!debt && !entry) return;
+    const currency = entry ? entry.currency : debt.currency;
+    const rate = S.rate.rate;
+    const others = entry ? S.entries.filter((/** @type {any} */ e) => e.id !== entry.id) : S.entries;
+    const left = debt ? balanceLeft(debt, others, rate) : 0;
+    const presets = [];
+    if (debt && left > 0) {
+      if (debt.minimum > 0 && debt.minimum < left) presets.push({ label: 'Minimum', amountText: minorToInput(debt.minimum) });
+      const est = estimate(left, debt.apr, debt.minimum);
+      if (est && est.clearIn24 > debt.minimum && est.clearIn24 < left) presets.push({ label: 'Clears in 2 yrs', amountText: minorToInput(est.clearIn24) });
+      presets.push({ label: 'Full', amountText: minorToInput(left) });
+    }
+    const after = (/** @type {string} */ text) => {
+      if (!debt) return '';
+      const paying = parseAmount(text) ?? 0;
+      const rest = Math.max(0, left - paying);
+      return rest === 0 && paying > 0 ? 'This pays it off.' : `Balance after: ${formatMoney(rest, debt.currency)}`;
+    };
+    const today = todayIso();
+    const base = { kind: 'entry', type: 'expense', category: DEBT_CATEGORY, debtId: entry?.debtId ?? debt.id, debtName: debt?.name ?? entry.note, currency,
+      presets, after, author: '', error: '', confirmDiscard: false, confirmDelete: false, dirty: false };
+    if (entry) {
+      return openSheet({ ...base, mode: 'edit', id: entry.id, amountText: minorToInput(entry.amount), date: entry.date, scope: entry.scope, note: entry.note });
+    }
+    openSheet({ ...base, mode: 'add', id: backend.newId('entries'), amountText: debt.minimum > 0 && debt.minimum < left ? minorToInput(debt.minimum) : '',
+      date: today, scope: debt.scope, note: `${debt.name} payment` });
+  }
+
+  /** Summary shown above an existing debt's form: what is left, progress, estimates, payments. @param {any} debt */
+  function debtSummary(debt) {
+    const rate = S.rate.rate;
+    const left = balanceLeft(debt, S.entries, rate);
+    const pct = debt.balance > 0 ? Math.round(((debt.balance - left) / debt.balance) * 100) : 100;
+    const est = estimate(left, debt.apr, debt.minimum);
+    const pays = paymentsFor(debt, S.entries).slice(0, 5);
+    const fm = (/** @type {number} */ m) => formatMoney(m, debt.currency);
+    const compare = est ? `<div class="card card-pad" role="note"><div class="spread"><span class="row-title">Each month</span>
+        ${est.covers ? '' : `<span class="flag neg" style="margin:0">${'Balance grows'}</span>`}</div>
+        <div class="compare"><span class="muted" style="font-weight:600">Interest</span><i style="background:var(--amber);width:${Math.round((Math.min(est.interest, Math.max(est.interest, debt.minimum)) / Math.max(est.interest, debt.minimum, 1)) * 100)}%"></i><span class="num">${esc(fm(est.interest))}</span>
+          <span class="muted" style="font-weight:600">Minimum</span><i style="background:var(--brand);width:${Math.round((debt.minimum / Math.max(est.interest, debt.minimum, 1)) * 100)}%"></i><span class="num">${esc(fm(debt.minimum))}</span></div>
+        <p class="muted small" style="margin:12px 0 0">${est.months ? `At the minimum, paid off in about ${est.months} month${est.months === 1 ? '' : 's'}. ` : ''}Pay <strong style="color:var(--ink)">${esc(fm(est.clearIn24))} a month</strong> to clear it in about 2 years. A rough estimate from the ${debt.apr}% rate; your statement is the real number.</p></div>` : '';
+    return `<div class="card card-pad"><div class="muted small" style="font-weight:600">Balance left · ${esc(debtTypeLabel(debt.type))}</div>
+        <div class="num" style="font-size:34px;line-height:1.1">${esc(fm(left))}</div>
+        <div class="bar" style="height:10px;margin-top:12px" role="img" aria-label="${pct} percent paid off"><span style="width:${Math.max(pct > 0 ? 2 : 0, pct)}%;background:var(--pos)"></span></div>
+        <div class="spread muted small" style="margin-top:8px"><span>${pct}% paid off</span><span>from ${esc(fm(debt.balance))} on ${esc(debt.balanceDate)}</span></div>
+        ${left > 0 ? `<button type="button" class="btn" style="margin-top:14px" data-action="pay-debt" data-id="${esc(debt.id)}">Pay ${esc(debt.name)}</button>` : ''}</div>
+      ${compare}
+      ${pays.length ? `<section class="grp"><div class="gh"><h3 class="h2" style="font-size:16px">Payments</h3></div><div class="card list">${pays.map((/** @type {any} */ e) => `<button type="button" class="row" data-action="open-entry" data-id="${esc(e.id)}"><span>${esc(e.date)} · ${esc(V.personName(viewState(), e.by))}</span><span class="row-amt">${esc(formatMoney(e.amount, e.currency))}</span></button>`).join('')}</div></section>` : ''}`;
+  }
+
+  /** @param {any} [debt] */
+  function openDebt(debt) {
+    const blank = { kind: 'debt', error: '', confirmDiscard: false, confirmDelete: false, dirty: false };
+    if (!debt) {
+      if (S.debtsBlocked) { toast('Debts aren’t switched on for this household yet. Ask the person who set up Tally to update its rules.'); return; }
+      return openSheet({ ...blank, mode: 'add', id: backend.newId('debts'), name: '', type: 'card', currency: S.profile.homeCurrency, balanceText: '', balanceDate: todayIso(),
+        minimumText: '', dueDayText: '', aprText: '', scope: 'shared', summary: '' });
+    }
+    if (debt.by !== S.user.email) {
+      return openSheet({ ...blank, mode: 'edit', readOnly: true, id: debt.id, name: debt.name, type: debt.type, currency: debt.currency, balanceText: minorToInput(debt.balance), balanceDate: debt.balanceDate,
+        minimumText: debt.minimum ? minorToInput(debt.minimum) : '', dueDayText: debt.dueDay ? String(debt.dueDay) : '', aprText: debt.apr === null ? '' : String(debt.apr), scope: debt.scope,
+        summary: `${debtSummary(debt)}<p class="muted small" style="margin:0">Only ${esc(V.personName(viewState(), debt.by, { you: false }))} can change this debt. You can still log payments.</p>` });
+    }
+    openSheet({ ...blank, mode: 'edit', id: debt.id, name: debt.name, type: debt.type, currency: debt.currency, balanceText: minorToInput(debt.balance), balanceDate: debt.balanceDate,
+      minimumText: debt.minimum ? minorToInput(debt.minimum) : '', dueDayText: debt.dueDay ? String(debt.dueDay) : '', aprText: debt.apr === null ? '' : String(debt.apr), scope: debt.scope,
+      summary: debtSummary(debt) });
+  }
+
+  function saveDebt() {
+    const d = S.sheet;
+    readSheetInputs();
+    const balance = d.balanceText.trim() === '' ? null : d.balanceText.trim() === '0' ? 0 : parseAmount(d.balanceText);
+    const minimum = d.minimumText.trim() === '' ? 0 : parseAmount(d.minimumText);
+    const dueDay = d.dueDayText.trim() === '' ? 0 : /^\d{1,2}$/.test(d.dueDayText.trim()) ? Number(d.dueDayText.trim()) : NaN;
+    const apr = d.aprText.trim() === '' ? null : Number(d.aprText.trim().replace('%', ''));
+    const error = validateDebt({ name: d.name, balance, balanceDate: d.balanceDate, minimum, dueDay, apr }, todayIso());
+    if (error) { d.error = error; renderSheet(); return; }
+    const isNew = d.mode === 'add';
+    const data = { name: d.name.trim(), type: d.type, currency: d.currency, balance, balanceDate: d.balanceDate, minimum, dueDay, apr, scope: d.scope, by: S.user.email, deleted: false };
+    background(backend.put('debts', d.id, data, isNew), 'Couldn’t save that debt.');
+    closeSheet({ force: true });
+    toast(isNew ? 'Debt added' : 'Debt updated');
   }
 
   /** @param {any} [bill] */
@@ -613,6 +732,7 @@ export function startApp(backend, options = {}) {
     d.amountText = next;
     d.dirty = true;
     d.error = '';
+    if (d.debtId) { renderSheet(); return; }
     const out = sheetRoot.querySelector('#amount-out');
     const shown = amountDisplay(next);
     if (out) {
@@ -663,6 +783,25 @@ export function startApp(backend, options = {}) {
       case 'new-bill': openBill(); break;
       case 'open-bill': openBill(S.bills.find((/** @type {any} */ b) => b.id === target.dataset.id)); break;
       case 'bill-paid': toggleBillPaid(String(target.dataset.id)); break;
+      case 'new-debt': openDebt(); break;
+      case 'open-debt': openDebt(S.debts.find((/** @type {any} */ x) => x.id === target.dataset.id)); break;
+      case 'pay-debt': {
+        const debt = S.debts.find((/** @type {any} */ x) => x.id === target.dataset.id);
+        if (debt) openPay(debt);
+        break;
+      }
+      case 'pay-preset': if (d) { d.amountText = String(target.dataset.value); d.dirty = true; d.error = ''; renderSheet(); } break;
+      case 'debt-type': readSheetInputs(); d.type = target.dataset.value; d.dirty = true; renderSheet(); break;
+      case 'debt-currency': readSheetInputs(); d.currency = target.dataset.value; d.dirty = true; renderSheet(); break;
+      case 'debt-scope': readSheetInputs(); d.scope = target.dataset.value; d.dirty = true; renderSheet(); break;
+      case 'debt-delete': readSheetInputs(); d.confirmDelete = true; renderSheet(); break;
+      case 'debt-delete-confirm': {
+        const id = d.id;
+        background(backend.setDeleted('debts', id, true), 'Couldn’t delete that debt.');
+        closeSheet({ force: true });
+        toast('Debt deleted', { label: 'Undo', run: () => background(backend.setDeleted('debts', id, false), 'Couldn’t restore that debt.') });
+        break;
+      }
       case 'form-seg': {
         const field = String(target.dataset.field);
         const form = /** @type {HTMLFormElement|null} */ (target.closest('form'));
@@ -715,6 +854,7 @@ export function startApp(backend, options = {}) {
     if (form.dataset.form === 'setup') submitProfile(form, true);
     else if (form.dataset.form === 'profile') submitProfile(form, false);
     else if (form.dataset.form === 'bill') saveBill();
+    else if (form.dataset.form === 'debt') { if (S.sheet?.readOnly) { closeSheet({ force: true }); } else saveDebt(); }
   });
 
   boot();

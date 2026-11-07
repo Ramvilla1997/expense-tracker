@@ -1,12 +1,12 @@
 // Tally service worker: network-first app shell with a short timeout, cached Firebase SDK,
 // so the app opens offline and every deploy reaches phones on the next open.
-const VERSION = 'tally-v9';
+const VERSION = 'tally-v10';
 const SHELL = [
   './', './index.html', './css/app.css', './config.js', './manifest.json', './icon.svg', './icon-192.png', './apple-touch-icon.png',
   './fonts/jakarta-latin.woff2', './fonts/jakarta-latin-ext.woff2',
   './js/main.js', './js/app.js', './js/backend/firebase.js', './js/ui/views.js', './js/ui/sheets.js', './js/ui/icons.js',
   './js/core/money.js', './js/core/keypad.js', './js/core/dates.js', './js/core/entries.js', './js/core/budget.js',
-  './js/core/bills.js', './js/core/text.js', './js/core/rates.js', './js/core/profile.js',
+  './js/core/bills.js', './js/core/debts.js', './js/core/text.js', './js/core/rates.js', './js/core/profile.js',
 ];
 const SDK = ['firebase-app', 'firebase-auth', 'firebase-firestore'].map((m) => `https://www.gstatic.com/firebasejs/10.14.1/${m}.js`);
 const TIMEOUT_MS = 3000;

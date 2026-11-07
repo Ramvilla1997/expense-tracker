@@ -15,7 +15,13 @@ import { isValidIso, monthOf } from './dates.js';
  * @property {string} by email of the author
  * @property {string} date YYYY-MM-DD
  * @property {boolean} deleted
+ * @property {string} debtId the debt this pays down; '' for ordinary entries
  */
+
+/** Category every debt payment carries; payments are not spending. */
+export const DEBT_CATEGORY = 'Debt';
+/** @param {{debtId?: string}} e */
+export const isDebtPayment = (e) => Boolean(e.debtId);
 
 export const EXPENSE_CATEGORIES = ['Food', 'Transport', 'Shopping', 'Bills', 'Home', 'Health', 'Fun', 'Travel', 'Family', 'Other'];
 export const INCOME_CATEGORIES = ['Salary', 'Transfer', 'Other'];
@@ -43,19 +49,24 @@ export function normalizeEntry(id, raw) {
     by: typeof raw.by === 'string' ? raw.by : '',
     date: raw.date,
     deleted: raw.deleted === true,
+    debtId: typeof raw.debtId === 'string' ? raw.debtId : '',
   };
 }
 
 /**
  * Validates the editable fields of an entry draft. Returns an error message or ''.
- * @param {{type:string, amount:number|null, category:string, date:string, note:string, scope:string}} draft
+ * @param {{type:string, amount:number|null, category:string, date:string, note:string, scope:string, debtId?:string}} draft
  * @param {string} today
  */
 export function validateDraft(draft, today) {
   if (!draft.amount || draft.amount <= 0) return 'Enter an amount greater than zero.';
   if (draft.amount > MAX_MINOR) return 'That amount is too large.';
-  const categories = draft.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  if (!categories.includes(draft.category)) return 'Pick a category.';
+  if (draft.debtId) {
+    if (draft.type !== 'expense' || draft.category !== DEBT_CATEGORY) return 'A debt payment must be an expense.';
+  } else {
+    const categories = draft.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+    if (!categories.includes(draft.category)) return 'Pick a category.';
+  }
   if (!isValidIso(draft.date)) return 'Pick a valid date.';
   if (draft.date > today) return 'The date can’t be in the future.';
   if (draft.note.length > NOTE_MAX) return `Keep the note under ${NOTE_MAX} characters.`;
@@ -71,17 +82,19 @@ export const inMonth = (entries, month) => entries.filter((e) => monthOf(e.date)
 
 /**
  * @param {Entry[]} entries
- * @param {'all'|'personal'|'shared'|'income'} filter
+ * @param {'all'|'personal'|'shared'|'debts'|'income'} filter
  */
 export function applyFilter(entries, filter) {
-  if (filter === 'personal') return entries.filter((e) => e.type === 'expense' && e.scope === 'mine');
-  if (filter === 'shared') return entries.filter((e) => e.type === 'expense' && e.scope === 'shared');
+  if (filter === 'personal') return entries.filter((e) => e.type === 'expense' && e.scope === 'mine' && !e.debtId);
+  if (filter === 'shared') return entries.filter((e) => e.type === 'expense' && e.scope === 'shared' && !e.debtId);
+  if (filter === 'debts') return entries.filter((e) => Boolean(e.debtId));
   if (filter === 'income') return entries.filter((e) => e.type === 'income');
   return entries;
 }
 
 /**
  * Sum of entries in the target currency. Expenses only unless type given.
+ * Debt payments are never spending, so they are left out; see debtPaidTotal.
  * @param {Entry[]} entries
  * @param {Currency} to
  * @param {number} rate
@@ -89,8 +102,13 @@ export function applyFilter(entries, filter) {
  */
 export function total(entries, to, rate, type = 'expense') {
   return entries
-    .filter((e) => e.type === type)
+    .filter((e) => e.type === type && !e.debtId)
     .reduce((sum, e) => sum + convert(e.amount, e.currency, to, rate), 0);
+}
+
+/** Sum of debt payments in the target currency. @param {Entry[]} entries @param {Currency} to @param {number} rate */
+export function debtPaidTotal(entries, to, rate) {
+  return entries.filter((e) => e.debtId && !e.deleted).reduce((sum, e) => sum + convert(e.amount, e.currency, to, rate), 0);
 }
 
 /**
@@ -119,7 +137,7 @@ export function topCategories(entries, to, rate, limit = 3) {
   /** @type {Map<string, number>} */
   const sums = new Map();
   for (const e of entries) {
-    if (e.type !== 'expense') continue;
+    if (e.type !== 'expense' || e.debtId) continue;
     sums.set(e.category, (sums.get(e.category) ?? 0) + convert(e.amount, e.currency, to, rate));
   }
   return [...sums.entries()]

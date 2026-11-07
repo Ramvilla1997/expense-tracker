@@ -7,17 +7,17 @@ export function createMockBackend(cfg) {
     members: cfg.members ?? [],
     access: cfg.access ?? 'auto', // auto | offline | denied
     profileStatus: cfg.profileStatus ?? 'auto', // auto | unknown
-    data: { entries: {}, bills: {}, profiles: {} },
-    pending: { entries: new Set(), bills: new Set(), profiles: new Set() },
+    data: { entries: {}, bills: {}, debts: {}, profiles: {} },
+    pending: { entries: new Set(), bills: new Set(), debts: new Set(), profiles: new Set() },
     ackDelay: cfg.ackDelay ?? 30,
     failWrites: cfg.failWrites ?? false,
     calls: [],
     seq: 0,
   };
-  for (const name of ['entries', 'bills', 'profiles']) {
+  for (const name of ['entries', 'bills', 'debts', 'profiles']) {
     for (const [id, doc] of Object.entries(cfg[name] ?? {})) st.data[name][id] = structuredClone(doc);
   }
-  const listeners = { entries: [], bills: [], profiles: [] };
+  const listeners = { entries: [], bills: [], debts: [], profiles: [] };
   let authCb = null;
 
   const emit = (name) => {

@@ -28,7 +28,7 @@ service cloud.firestore {
 
       match /entries/{entryId} {
         function validEntry(d) {
-          return d.keys().hasOnly(['type', 'amount', 'currency', 'category', 'note', 'scope', 'by', 'date', 'deleted', 'clientCreatedAt', 'createdAt', 'updatedAt'])
+          return d.keys().hasOnly(['type', 'amount', 'currency', 'category', 'note', 'scope', 'by', 'date', 'deleted', 'debtId', 'clientCreatedAt', 'createdAt', 'updatedAt'])
             && d.get('type', 'expense') in ['expense', 'income']
             && validMoney(d)
             && shortText(d.category, 30)
@@ -37,7 +37,8 @@ service cloud.firestore {
             && d.by == email()
             && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
             && d.deleted is bool
-            && (!('clientCreatedAt' in d) || d.clientCreatedAt is number);
+            && (!('clientCreatedAt' in d) || d.clientCreatedAt is number)
+            && (!('debtId' in d) || (d.debtId is string && d.debtId.size() <= 40));
         }
         allow read: if isMember();
         allow create: if isMember() && validEntry(incoming()) && incoming().deleted == false;
@@ -62,6 +63,27 @@ service cloud.firestore {
           && (resource.data.by == email()
             || (resource.data.scope == 'shared'
               && incoming().diff(resource.data).affectedKeys().hasOnly(['paidMonths', 'updatedAt'])));
+        allow delete: if false;
+      }
+
+      match /debts/{debtId} {
+        function validDebt(d) {
+          return d.keys().hasOnly(['name', 'type', 'currency', 'balance', 'balanceDate', 'minimum', 'dueDay', 'apr', 'scope', 'by', 'deleted', 'createdAt', 'updatedAt'])
+            && shortText(d.name, 40) && d.name.size() > 0
+            && d.type in ['card', 'loan', 'person']
+            && d.currency in ['CAD', 'INR']
+            && d.balance is int && d.balance >= 0 && d.balance <= 99999999999
+            && d.balanceDate is string && d.balanceDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && d.minimum is int && d.minimum >= 0 && d.minimum <= 99999999999
+            && d.dueDay is int && d.dueDay >= 0 && d.dueDay <= 31
+            && (d.apr == null || (d.apr is number && d.apr >= 0 && d.apr <= 100))
+            && d.scope in ['mine', 'shared']
+            && d.deleted is bool;
+        }
+        allow read: if isMember();
+        allow create: if isMember() && validDebt(incoming()) && incoming().by == email() && incoming().deleted == false;
+        // Only the owner edits a debt; payments are entries, so the other person never needs to.
+        allow update: if isMember() && resource.data.by == email() && validDebt(incoming()) && incoming().by == resource.data.by;
         allow delete: if false;
       }
 

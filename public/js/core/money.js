@@ -45,7 +45,7 @@ const compactFormatters = {
   CAD: new Intl.NumberFormat('en-CA', { maximumFractionDigits: 0 }),
   INR: new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }),
 };
-const PREFIX = { CAD: 'CAD ', INR: '₹' };
+const PREFIX = { CAD: '$', INR: '₹' };
 
 /**
  * @param {number} minor

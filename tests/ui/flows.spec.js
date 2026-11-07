@@ -96,7 +96,7 @@ test.describe('setup', () => {
     delete cfg.profiles[ME];
     await launch(page, cfg);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.getByText('Your spending this month')).toBeVisible();
+    await expect(page.getByText('Set a budget to see what’s safe to spend each day.')).toBeVisible();
     expect((await mockState(page)).data.profiles[ME]).toMatchObject({ monthlyBudget: 0, payFrequency: null, payAnchor: null });
   });
 });

@@ -19,8 +19,8 @@ test.describe('Activity', () => {
     const days = page.locator('main section.card');
     await expect(days.nth(0).getByRole('heading')).toHaveText('Today');
     await expect(days.nth(1).getByRole('heading')).toHaveText('Yesterday');
-    await expect(days.nth(1).locator('.card-head')).toContainText('−CAD 20.00'); // income not counted in the day total
-    await expect(page.getByRole('button', { name: /Internet.*Food · Shared · by Vamsi.*CAD 20\.00/ })).toBeVisible();
+    await expect(days.nth(1).locator('.card-head')).toContainText('−$20.00'); // income not counted in the day total
+    await expect(page.getByRole('button', { name: /Internet.*Food · Shared · by Vamsi.*\$20\.00/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Gone/ })).toHaveCount(0);
   });
 
@@ -70,10 +70,10 @@ test.describe('Shared', () => {
     ]) }));
     await nav(page, 'Shared');
     const totals = page.getByRole('region', { name: 'Shared totals' });
-    await expect(totals.getByText('CAD 140.00')).toBeVisible();
+    await expect(totals.getByText('$140.00')).toBeVisible();
     await expect(totals.getByText('You paid')).toBeVisible();
     await expect(totals.getByText('Vamsi paid')).toBeVisible();
-    await expect(totals.getByText('Vamsi owes you CAD 30.00')).toBeVisible();
+    await expect(totals.getByText('Vamsi owes you $30.00')).toBeVisible();
     await expect(page.getByRole('button', { name: /Not shared/ })).toHaveCount(0);
     await expect(page.getByText('Everyone in your household can see all entries.')).toBeVisible();
   });
@@ -108,20 +108,23 @@ test.describe('Plan', () => {
   test('budget card and next payday', async ({ page }) => {
     await launch(page, member({ entries: Object.fromEntries([entry({ date: '2026-11-02', amount: 100000 })]) }));
     await nav(page, 'Plan');
-    const card = page.getByRole('region', { name: 'Monthly budget' });
-    await expect(card.getByText('CAD 3,000')).toBeVisible();
-    await expect(card.getByText('CAD 1,000', { exact: true })).toBeVisible();
-    await expect(card.getByText('CAD 2,000')).toBeVisible();
-    await expect(card.getByText('About CAD 100.00 a day for the 20 days left. Shared costs count half.')).toBeVisible();
-    await expect(page.getByText('Fri 13 Nov')).toBeVisible();
-    await expect(page.getByText('in 2 days')).toBeVisible();
+    const card = page.getByRole('button', { name: /Monthly budget/ });
+    await expect(card).toContainText('$1,000');
+    await expect(card).toContainText('/ 3,000');
+    await expect(card.getByRole('img', { name: '33 percent spent, 37 percent of the month gone' })).toBeVisible();
+    await expect(card).toContainText('On pace');
+    const payday = page.getByRole('button', { name: /Next payday/ });
+    await expect(payday).toContainText('Fri 13');
+    await expect(payday).toContainText('in 2 days');
+    await card.click();
+    await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
   });
 
   test('adds a bill with validation, then marks it paid and unpaid', async ({ page }) => {
     await launch(page);
     await nav(page, 'Plan');
-    await expect(page.getByText('No bills yet')).toBeVisible();
-    await page.getByRole('button', { name: '+ Add bill' }).click();
+    await expect(page.getByText(/Add rent, phone, insurance or subscriptions/)).toBeVisible();
+    await page.getByRole('button', { name: 'Add a bill' }).click();
     const sheet = page.getByRole('dialog');
     await expect(sheet.getByLabel('Name')).toBeFocused();
     await sheet.getByRole('button', { name: 'Add bill' }).click();
@@ -137,15 +140,15 @@ test.describe('Plan', () => {
     await sheet.getByRole('button', { name: 'Add bill' }).click();
     await expect(sheet).toBeHidden();
 
-    const row = page.getByRole('button', { name: /Phone.*Due Mon 30 Nov · Shared.*Upcoming/ });
+    const row = page.getByRole('button', { name: /^Phone \$65\.00 Mon 30 · Shared/ });
     await expect(row).toBeVisible();
     const saved = Object.values((await mockState(page)).data.bills)[0];
     expect(saved).toMatchObject({ name: 'Phone', amount: 6500, dueDay: 31, scope: 'shared', startMonth: '2026-11', paidMonths: [] });
 
-    await page.getByRole('button', { name: 'Mark paid' }).click();
-    await expect(page.getByRole('button', { name: 'Paid', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: 'Paid', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Mark paid' })).toBeVisible();
+    await page.getByRole('button', { name: 'Mark paid: Phone' }).click();
+    await expect(page.getByRole('button', { name: 'Paid: Phone. Tap to undo' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Paid: Phone. Tap to undo' }).click();
+    await expect(page.getByRole('button', { name: 'Mark paid: Phone' })).toBeVisible();
     expect(Object.values((await mockState(page)).data.bills)[0].paidMonths).toEqual([]);
   });
 
@@ -166,19 +169,19 @@ test.describe('Plan', () => {
   test('edits and deletes my bill with undo; someone else’s bill is mark-paid only', async ({ page }) => {
     await launch(page, member({ bills: { mine: bill({ name: 'Gym' }), theirs: bill({ name: 'Wifi', by: BRO, scope: 'shared' }) } }));
     await nav(page, 'Plan');
-    await page.getByRole('button', { name: /^Gym Due/ }).click();
+    await page.getByRole('button', { name: /^Gym \$/ }).click();
     const sheet = page.getByRole('dialog');
     await sheet.getByLabel('Name').fill('Gym club');
     await sheet.getByRole('button', { name: 'Save changes' }).click();
-    await expect(page.getByRole('button', { name: /^Gym club Due/ })).toBeVisible();
-    await page.getByRole('button', { name: /^Gym club Due/ }).click();
+    await expect(page.getByRole('button', { name: /^Gym club \$/ })).toBeVisible();
+    await page.getByRole('button', { name: /^Gym club \$/ }).click();
     await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
     await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.getByRole('button', { name: /^Gym club Due/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Gym club \$/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Undo' }).click();
-    await expect(page.getByRole('button', { name: /^Gym club Due/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Gym club \$/ })).toBeVisible();
 
-    await page.getByRole('button', { name: /^Wifi Due/ }).click();
+    await page.getByRole('button', { name: /^Wifi \$/ }).click();
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByText('Only Vamsi can edit this bill. You can still mark it paid.')).toBeVisible();
   });
@@ -219,7 +222,7 @@ test.describe('Profile', () => {
     await expect(page.getByText(/1 CAD = 61.20 INR · European Central Bank rate of Tue 10 Nov/)).toBeVisible();
     await page.getByRole('region', { name: 'Show amounts in' }).getByRole('button', { name: 'INR' }).click();
     await page.getByRole('button', { name: 'Back to Home' }).click();
-    await expect(page.getByRole('region', { name: 'Today’s budget' }).getByRole('button', { name: 'INR' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('region', { name: 'This month' }).getByRole('button', { name: 'INR' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('says when the rate is approximate', async ({ page }) => {
@@ -243,5 +246,85 @@ test.describe('Profile', () => {
     expect(text).toContain(`'=HYPERLINK(""http://evil"",""x"")`);
     expect(text).toContain('"Rice, dal",Shared,Vamsi,612,INR,10');
     expect(text).not.toContain('deleted');
+  });
+});
+
+test.describe('Debts', () => {
+  const debt = (over) => ({ name: 'MBNA', type: 'card', currency: 'CAD', balance: 1000000, balanceDate: '2026-11-01', minimum: 11293, dueDay: 15, apr: 20, scope: 'shared', by: ME, deleted: false, ...over });
+
+  test('adds a debt with validation; a person debt needs no date or minimum', async ({ page }) => {
+    await launch(page);
+    await nav(page, 'Plan');
+    await page.getByRole('button', { name: 'Add a debt' }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByLabel('Name')).toBeFocused();
+    await sheet.getByRole('button', { name: 'Add debt' }).click();
+    await expect(sheet.getByRole('alert')).toHaveText('Give the debt a name.');
+    await sheet.getByLabel('Name').fill('Phani');
+    await sheet.getByRole('button', { name: 'Person' }).click();
+    await sheet.getByLabel('Balance owed').fill('2366');
+    await sheet.getByLabel(/Interest rate/).fill('150');
+    await sheet.getByRole('button', { name: 'Add debt' }).click();
+    await expect(sheet.getByRole('alert')).toHaveText('Enter a rate from 0 to 100%.');
+    await sheet.getByLabel(/Interest rate/).fill('');
+    await sheet.getByRole('button', { name: 'Add debt' }).click();
+    await expect(sheet).toBeHidden();
+    expect(Object.values((await mockState(page)).data.debts)[0]).toMatchObject({ name: 'Phani', type: 'person', balance: 236600, minimum: 0, dueDay: 0, apr: null, scope: 'shared', by: ME, balanceDate: '2026-11-11' });
+    const row = page.getByRole('button', { name: /^Phani \$2,366\.00 No fixed date/ });
+    await expect(row).toBeVisible();
+  });
+
+  test('a debt shows the interest warning, opens with estimates, and Pay swaps in place', async ({ page }) => {
+    await launch(page, member({ debts: { d1: debt() } }));
+    await nav(page, 'Plan');
+    await expect(page.getByText('Minimum doesn’t cover interest')).toBeVisible();
+    await page.getByRole('button', { name: /^MBNA \$10,000\.00/ }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByText('Balance grows')).toBeVisible();
+    await expect(sheet.getByText(/Pay \$508\.96 a month to clear it in about 2 years/)).toBeVisible();
+    await sheet.getByRole('button', { name: 'Pay MBNA' }).click();
+    await expect(sheet.getByRole('heading', { name: 'Pay MBNA' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: /Clears in 2 yrs \$508\.96/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Plan' })).toBeVisible();
+  });
+
+  test('someone else’s debt is read-only but can be paid; names are text', async ({ page }) => {
+    await launch(page, member({ debts: { d1: debt({ name: '<img src=x onerror=window.__pwned=1>', by: BRO }) } }));
+    await nav(page, 'Plan');
+    await page.getByRole('button', { name: /^<img src=x/ }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByText(/Only Vamsi can change this debt/)).toBeVisible();
+    await expect(sheet.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+    expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
+  });
+
+  test('deleting a debt asks first and can be undone', async ({ page }) => {
+    await launch(page, member({ debts: { d1: debt() } }));
+    await nav(page, 'Plan');
+    await page.getByRole('button', { name: /^MBNA \$/ }).click();
+    const sheet = page.getByRole('dialog');
+    await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
+    await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('button', { name: /^MBNA \$/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('button', { name: /^MBNA \$/ })).toBeVisible();
+  });
+
+  test('Activity has a Debts filter with a monthly trend, kept out of spending totals', async ({ page }) => {
+    await launch(page, member({ debts: { d1: debt() }, entries: Object.fromEntries([
+      entry({ category: 'Debt', debtId: 'd1', amount: 140000, date: '2026-11-06', note: 'MBNA payment' }),
+      entry({ category: 'Debt', debtId: 'd1', amount: 11293, date: '2026-10-14', note: 'MBNA payment' }),
+      entry({ amount: 1500, date: '2026-11-06', note: 'Lunch' }),
+    ]) }));
+    await nav(page, 'Activity');
+    await expect(page.getByLabel('Spent in this view')).toHaveText('−$15.00');
+    await page.getByRole('button', { name: 'Debts', exact: true }).click();
+    await expect(page.getByRole('img', { name: 'Aug $0, Sep $0, Oct $113, Nov $1,400' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /MBNA payment.*Debt payment/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Lunch/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /MBNA payment/ }).click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: 'Edit payment' })).toBeVisible();
   });
 });

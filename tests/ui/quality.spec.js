@@ -75,7 +75,7 @@ test.describe('security', () => {
       await page.goto(`/tests/ui/harness.html${hash}`);
       await expect(page.locator('main .view-enter')).toBeVisible();
     }
-    await page.goto('/tests/ui/harness.html#/home');
+    await page.goto('/tests/ui/harness.html#/activity');
     await page.getByRole('button', { name: /window.__pwned/ }).first().click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(await page.evaluate(() => window.__pwned)).toBeUndefined();

@@ -17,6 +17,7 @@ export function member(over = {}) {
     },
     entries: {},
     bills: {},
+    debts: {},
     ...over,
   };
 }
