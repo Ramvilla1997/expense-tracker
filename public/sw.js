@@ -1,5 +1,5 @@
 // Network-first so every deploy reaches phones on the next open; cache is the offline fallback.
-const CACHE = 'tally-v2';
+const CACHE = 'tally-v3';
 const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.json', './icon.svg', './icon-192.png'];
 
 self.addEventListener('install', (event) => {

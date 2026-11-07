@@ -36,6 +36,7 @@ input, select, textarea { width: 100%; font: inherit; font-size: 16px; padding: 
 .error { color: var(--red); font-size: 14px; margin-top: 8px; min-height: 18px; }
 #tabs { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
   background: rgba(255,255,255,0.92); border-top: 1px solid var(--line); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
+#tabs[hidden] { display: none; }
 #tabs button { background: none; border: 0; font: inherit; font-size: 13px; color: var(--muted); padding: 8px 0; cursor: pointer; }
 #tabs button[aria-current="page"] { color: var(--brand); font-weight: 500; }
 #tabs .fab { justify-self: center; width: 52px; height: 52px; border-radius: 50%; background: var(--brand); color: #fff;
