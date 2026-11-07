@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isMember() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in get(/databases/$(database)/documents/households/family).data.members;
+    }
+    match /households/family/{document=**} {
+      allow read, write: if isMember();
+    }
+  }
+}
