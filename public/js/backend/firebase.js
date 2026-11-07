@@ -3,7 +3,7 @@
 // so tests can swap in an in-memory backend with the same shape.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut,
+  getAuth, GoogleAuthProvider, signInWithCredential, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDocFromServer, getDocFromCache,
@@ -15,8 +15,49 @@ const HOUSEHOLD = 'family';
 /** @param {any} err */
 const isDenied = (err) => err?.code === 'permission-denied';
 
-/** @param {Record<string, any>} firebaseConfig */
-export function createFirebaseBackend(firebaseConfig) {
+const GIS_SRC = 'https://accounts.google.com/gsi/client';
+
+/** Loads Google Identity Services once; resolves to google.accounts.id. */
+/** @returns {Promise<any>} */
+function loadGis() {
+  const existing = /** @type {any} */ (window).google?.accounts?.id;
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = GIS_SRC;
+    script.async = true;
+    script.onload = () => resolve(/** @type {any} */ (window).google.accounts.id);
+    script.onerror = () => reject(new Error('gis-load-failed'));
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * Shows Google's account sheet over the app (One Tap). Resolves with the ID token,
+ * or 'cancelled' when the person dismisses it, or 'unavailable' when it cannot be shown.
+ * @param {string} clientId
+ * @returns {Promise<{kind:'token', credential:string}|{kind:'cancelled'}|{kind:'unavailable'}>}
+ */
+function requestGoogleSheet(clientId) {
+  return loadGis().then((id) => new Promise((resolve) => {
+    id.initialize({
+      client_id: clientId,
+      callback: (/** @type {{credential:string}} */ r) => resolve({ kind: 'token', credential: r.credential }),
+      cancel_on_tap_outside: true,
+      use_fedcm_for_prompt: true,
+    });
+    id.prompt((/** @type {any} */ n) => {
+      if (n.isNotDisplayed() || n.isSkippedMoment()) resolve({ kind: 'unavailable' });
+      else if (n.isDismissedMoment()) resolve({ kind: 'cancelled' });
+    });
+  }));
+}
+
+/**
+ * @param {Record<string, any>} firebaseConfig
+ * @param {{googleClientId?: string}} [options]
+ */
+export function createFirebaseBackend(firebaseConfig, options = {}) {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
@@ -36,9 +77,18 @@ export function createFirebaseBackend(firebaseConfig) {
     /**
      * Popup sign-in keeps Google's pages out of the browser history, so Back leaves the app.
      * Falls back to a full-page redirect only when the browser blocks the popup.
-     * @returns {Promise<'popup'|'redirect'|'cancelled'>}
+     * @returns {Promise<'sheet'|'popup'|'redirect'|'cancelled'>}
      */
     async signIn() {
+      if (options.googleClientId) {
+        let sheet;
+        try { sheet = await requestGoogleSheet(options.googleClientId); } catch { sheet = { kind: 'unavailable' }; }
+        if (sheet.kind === 'token') {
+          await signInWithCredential(auth, GoogleAuthProvider.credential(sheet.credential));
+          return 'sheet';
+        }
+        if (sheet.kind === 'cancelled') return 'cancelled';
+      }
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       try {
