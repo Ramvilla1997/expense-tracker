@@ -2,7 +2,7 @@
 // Which reminders a person should get today. Pure: the daily job and the tests both call it.
 import { billStatus } from './bills.js';
 import { balanceLeft, debtStatus, visibleDebts } from './debts.js';
-import { addDays, clampedDate, daysBetween, monthOf, nextPayday, shiftMonth } from './dates.js';
+import { addDays, daysBetween, nextPayday } from './dates.js';
 import { formatMoney } from './money.js';
 
 /** @typedef {import('./bills.js').Bill} Bill */
@@ -90,68 +90,3 @@ export function planReminders({ me, today, bills, debts, entries, profile, rate 
 
   return out;
 }
-
-/**
- * The first date each recurring item falls due on or after today, as a YYYY-MM-DD.
- * @param {number} dueDay @param {string} today
- */
-export function nextDueOnOrAfter(dueDay, today) {
-  const thisMonth = clampedDate(monthOf(today), dueDay);
-  return thisMonth >= today ? thisMonth : clampedDate(shiftMonth(monthOf(today), 1), dueDay);
-}
-
-/** @param {string} iso @returns {string} YYYYMMDD */
-const compact = (iso) => iso.replace(/-/g, '');
-
-/** Escapes text for an iCalendar value. @param {string} text */
-export function icsText(text) {
-  return text.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-}
-
-/** Folds lines longer than 75 characters, per RFC 5545. @param {string} line */
-export function foldLine(line) {
-  if (line.length <= 75) return line;
-  const parts = [line.slice(0, 75)];
-  for (let i = 75; i < line.length; i += 74) parts.push(` ${line.slice(i, i + 74)}`);
-  return parts.join('\r\n');
-}
-
-/**
- * A calendar file with one repeating event per bill and debt minimum, each with two alerts.
- * Works in Apple Calendar, Google Calendar and Outlook.
- * @param {{
- *   me: string, now: Date, today: string,
- *   bills: Bill[], debts: Debt[], entries: Entry[], rate: number,
- * }} input
- */
-export function buildCalendar({ me, now, today, bills, debts, entries, rate }) {
-  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  /** @type {string[]} */
-  const events = [];
-
-  const addEvent = (/** @type {string} */ uid, /** @type {string} */ summary, /** @type {string} */ start, /** @type {number} */ dueDay) => {
-    events.push([
-      'BEGIN:VEVENT',
-      `UID:${uid}@tally`,
-      `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${compact(start)}`,
-      `RRULE:FREQ=MONTHLY;BYMONTHDAY=${dueDay}`,
-      `SUMMARY:${icsText(summary)}`,
-      'TRANSP:TRANSPARENT',
-      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(summary)}`, 'TRIGGER:-P3D', 'END:VALARM',
-      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(summary)}`, 'TRIGGER:-P1D', 'END:VALARM',
-      'END:VEVENT',
-    ].map(foldLine).join('\r\n'));
-  };
-
-  for (const bill of bills.filter((b) => !b.deleted && (b.scope === 'shared' || b.by === me))) {
-    addEvent(`bill-${bill.id}`, `Pay ${bill.name} ${formatMoney(bill.amount, bill.currency)}`, nextDueOnOrAfter(bill.dueDay, today), bill.dueDay);
-  }
-  for (const debt of visibleDebts(debts, me)) {
-    if (!debt.dueDay || debt.minimum <= 0 || balanceLeft(debt, entries, rate) === 0) continue;
-    addEvent(`debt-${debt.id}`, `Pay ${debt.name} minimum ${formatMoney(debt.minimum, debt.currency)}`, nextDueOnOrAfter(debt.dueDay, today), debt.dueDay);
-  }
-
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Tally//Payments//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...events, 'END:VCALENDAR'].join('\r\n') + '\r\n';
-}
-

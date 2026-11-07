@@ -7,7 +7,6 @@ import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js
 import { applyKey, keyFromKeyboard } from './core/keypad.js';
 import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
-import { buildCalendar } from './core/reminders.js';
 import { currentSubscription, needsHomeScreen, pushSupported, turnOff, turnOn } from './push.js';
 import { toCsv } from './core/text.js';
 import * as V from './ui/views.js';
@@ -323,39 +322,6 @@ export function startApp(backend, options = {}) {
     }
   }
 
-  /** Saves a calendar file to the phone. Opening it adds the events to the calendar app. @param {string} ics @param {string} filename */
-  function saveCalendar(ics, filename) {
-    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  /** Calendar file for every bill and debt minimum. */
-  function downloadCalendar() {
-    const now = new Date();
-    const ics = buildCalendar({ me: S.user.email, now, today: todayIso(now), bills: S.bills, debts: S.debts, entries: S.entries, rate: S.rate.rate });
-    saveCalendar(ics, 'tally-payments.ics');
-    toast('Calendar file ready. Open it to add the reminders.');
-  }
-
-  /** Calendar file for one bill or debt, so it can be added on its own. @param {'bill'|'debt'} kind @param {string} id */
-  function addItemToCalendar(kind, id) {
-    const now = new Date();
-    const bills = kind === 'bill' ? S.bills.filter((/** @type {any} */ b) => b.id === id) : [];
-    const debts = kind === 'debt' ? S.debts.filter((/** @type {any} */ x) => x.id === id) : [];
-    const item = bills[0] ?? debts[0];
-    if (!item) { toast('That item isn’t on this phone yet. Try again in a moment.'); return; }
-    const ics = buildCalendar({ me: S.user.email, now, today: todayIso(now), bills, debts, entries: S.entries, rate: S.rate.rate });
-    const slug = item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || kind;
-    saveCalendar(ics, `tally-${slug}.ics`);
-    toast(`Calendar file ready for ${item.name}.`);
-  }
-
   // ---------- sheets ----------
 
   /** @param {any} draft */
@@ -571,7 +537,7 @@ export function startApp(backend, options = {}) {
     const data = { name: d.name.trim(), type: d.type, currency: d.currency, balance, balanceDate: d.balanceDate, minimum, dueDay, apr, scope: d.scope, by: S.user.email, deleted: false };
     background(backend.put('debts', d.id, data, isNew), 'Couldn’t save that debt.');
     closeSheet({ force: true });
-    toast(isNew ? 'Debt added' : 'Debt updated', isNew ? { label: 'Add to calendar', run: () => addItemToCalendar('debt', d.id) } : undefined);
+    toast(isNew ? 'Debt added' : 'Debt updated');
   }
 
   /** @param {any} [bill] */
@@ -600,7 +566,7 @@ export function startApp(backend, options = {}) {
       ...(isNew ? { paidMonths: [], startMonth: monthOf(todayIso()) } : {}) };
     background(backend.put('bills', d.id, data, isNew), 'Couldn’t save that bill.');
     closeSheet({ force: true });
-    toast(isNew ? 'Bill added' : 'Bill updated', isNew ? { label: 'Add to calendar', run: () => addItemToCalendar('bill', d.id) } : undefined);
+    toast(isNew ? 'Bill added' : 'Bill updated');
   }
 
   /** @param {string} id */
@@ -883,8 +849,6 @@ export function startApp(backend, options = {}) {
       case 'push-on': pushOn(); break;
       case 'push-off': pushOff(); break;
       case 'push-test': pushTest(); break;
-      case 'calendar': downloadCalendar(); break;
-      case 'item-calendar': addItemToCalendar(/** @type {'bill'|'debt'} */ (target.dataset.kind), String(target.dataset.id)); break;
       case 'dismiss-install': try { storage?.setItem(INSTALL_KEY, '1'); } catch { /* ignore */ } render(); break;
       case 'filter': S.activity.filter = /** @type {any} */ (target.dataset.filter); render(); break;
       case 'activity-month': S.activity.month = shiftMonth(S.activity.month, Number(target.dataset.delta)); render(); break;

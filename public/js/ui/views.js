@@ -463,7 +463,6 @@ function remindersSection(push) {
   };
   return `<section class="card card-pad stack" aria-labelledby="rem-h"><h2 class="h2" id="rem-h">Reminders</h2>
     ${states[push.status]}
-    <button type="button" class="row" data-action="calendar"><span class="row-main"><span class="ico">${icon('calendar')}</span><span><span class="row-title" style="display:block">Add reminders to my calendar</span><span class="row-meta" style="display:block">A calendar file with each bill and debt minimum</span></span></span></button>
   </section>`;
 }
 

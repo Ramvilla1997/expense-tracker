@@ -166,18 +166,6 @@ test.describe('Plan', () => {
     await expect(page.getByText('Due in 1 day')).toBeVisible();
   });
 
-  test('a bill can be added to the calendar from its sheet, as one event', async ({ page }) => {
-    await launch(page, member({ bills: { mine: bill({ name: 'Gym', amount: 4500, dueDay: 12 }) } }));
-    await nav(page, 'Plan');
-    await page.getByRole('button', { name: /^Gym \$/ }).click();
-    const sheet = page.getByRole('dialog');
-    const [download] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: 'Add to calendar' }).click()]);
-    expect(download.suggestedFilename()).toBe('tally-gym.ics');
-    const text = (await (await download.createReadStream()).toArray()).join('');
-    expect(text).toContain('SUMMARY:Pay Gym $45.00');
-    expect(text.match(/BEGIN:VEVENT/g)).toHaveLength(1);
-  });
-
   test('edits and deletes my bill with undo; someone else’s bill is mark-paid only', async ({ page }) => {
     await launch(page, member({ bills: { mine: bill({ name: 'Gym' }), theirs: bill({ name: 'Wifi', by: BRO, scope: 'shared' }) } }));
     await nav(page, 'Plan');
@@ -215,15 +203,9 @@ test.describe('Profile', () => {
     expect((await mockState(page)).data.profiles[ME]).toMatchObject({ name: 'Ramakrishna', monthlyBudget: 250050, payFrequency: 'monthly', payAnchor: '2026-11-28' });
   });
 
-  test('reminders: the Reminders section is there and the calendar file lists bills and debt minimums', async ({ page }) => {
-    const bill = { name: 'RBC', amount: 25000, currency: 'CAD', dueDay: 10, scope: 'mine', by: ME, paidMonths: [], startMonth: '2026-11', deleted: false };
-    await launch(page, member({ bills: { b1: bill } }), { hash: '#/profile' });
+  test('reminders: the Reminders section is on Profile', async ({ page }) => {
+    await launch(page, member(), { hash: '#/profile' });
     await expect(page.getByRole('heading', { name: 'Reminders' })).toBeVisible();
-    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Add reminders to my calendar/ }).click()]);
-    expect(download.suggestedFilename()).toBe('tally-payments.ics');
-    const text = (await (await download.createReadStream()).toArray()).join('');
-    expect(text).toContain('SUMMARY:Pay RBC $250.00');
-    expect(text).toContain('RRULE:FREQ=MONTHLY;BYMONTHDAY=10');
   });
 
   test('typing is not wiped by live data updates', async ({ page }) => {

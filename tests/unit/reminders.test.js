@@ -3,7 +3,7 @@ import { normalizeBill } from '../../public/js/core/bills.js';
 import { normalizeDebt } from '../../public/js/core/debts.js';
 import { normalizeEntry } from '../../public/js/core/entries.js';
 import { normalizeProfile } from '../../public/js/core/profile.js';
-import { buildCalendar, foldLine, icsText, planReminders } from '../../public/js/core/reminders.js';
+import { planReminders } from '../../public/js/core/reminders.js';
 
 const ME = 'ram@example.com';
 const BROTHER = 'vamsi@example.com';
@@ -103,41 +103,5 @@ describe('payday reminder', () => {
 
   it('does not fire on other days', () => {
     expect(run({ today: '2026-11-18', profile }).some((r) => r.title === 'Payday tomorrow')).toBe(false);
-  });
-});
-
-describe('calendar file', () => {
-  const now = new Date('2026-11-07T13:00:00Z');
-  const ics = buildCalendar({
-    me: ME, now, today: '2026-11-07', rate: RATE, entries: [],
-    bills: [bill({ id: 'b1', name: 'Insurance, home', dueDay: 15, scope: 'shared', by: BROTHER })],
-    debts: [debt({ id: 'd1', dueDay: 25 }), debt({ id: 'd2', name: 'Old card', dueDay: 0 })],
-  });
-
-  it('is a valid calendar with a monthly event per bill and debt minimum', () => {
-    expect(ics.startsWith('BEGIN:VCALENDAR\r\n')).toBe(true);
-    expect(ics.trimEnd().endsWith('END:VCALENDAR')).toBe(true);
-    expect((ics.match(/BEGIN:VEVENT/g) || []).length).toBe(2);
-    expect(ics).toContain('RRULE:FREQ=MONTHLY;BYMONTHDAY=15');
-    expect(ics).toContain('DTSTART;VALUE=DATE:20261115');
-    expect(ics).toContain('RRULE:FREQ=MONTHLY;BYMONTHDAY=25');
-  });
-
-  it('warns three days and one day ahead', () => {
-    expect(ics).toContain('TRIGGER:-P3D');
-    expect(ics).toContain('TRIGGER:-P1D');
-  });
-
-  it('escapes commas in titles', () => {
-    expect(ics).toContain('SUMMARY:Pay Insurance\\, home $250.00');
-  });
-
-  it('keeps every line within 75 characters', () => {
-    for (const line of ics.split('\r\n')) expect(line.length).toBeLessThanOrEqual(75);
-    expect(foldLine('x'.repeat(160)).split('\r\n')[1].startsWith(' ')).toBe(true);
-  });
-
-  it('escapes special characters', () => {
-    expect(icsText('a,b;c\\d\ne')).toBe('a\\,b\;c\\\\d\\ne');
   });
 });

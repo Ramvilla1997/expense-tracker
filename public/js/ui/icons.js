@@ -10,7 +10,6 @@ const PATHS = {
   next: '<path d="M9 5l7 7-7 7"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1z"/><path d="M4 7l11-3v3"/><circle cx="16" cy="13.5" r="1.2"/>',
   cloudOff: '<path d="M3 3l18 18M8 8a5 5 0 0 0-1 9.9h10M15.5 9.5A5 5 0 0 1 20 14.5"/>',
   share: '<path d="M12 3v12M7 8l5-5 5 5M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/>',
