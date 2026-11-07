@@ -1,6 +1,6 @@
 // Tally service worker: network-first app shell with a short timeout, cached Firebase SDK,
 // so the app opens offline and every deploy reaches phones on the next open.
-const VERSION = 'tally-v4';
+const VERSION = 'tally-v5';
 const SHELL = [
   './', './index.html', './css/app.css', './config.js', './manifest.json', './icon.svg', './icon-192.png', './apple-touch-icon.png',
   './fonts/jakarta-latin.woff2', './fonts/jakarta-latin-ext.woff2',

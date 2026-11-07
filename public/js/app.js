@@ -101,7 +101,16 @@ export function startApp(backend, options = {}) {
   }
 
   /** Replaces the main view, keeping focus on the same control when it still exists. @param {string} html */
+  let lastViewHtml = '';
+  let lastViewKey = '';
   function set(html) {
+    // Identical markup means nothing visible changed: keep the DOM so taps in flight still land.
+    if (html === lastViewHtml) return;
+    lastViewHtml = html;
+    // Only a real screen change plays the entrance fade; data updates swap content silently.
+    const viewKey = `${S.phase}:${S.route}`;
+    root.dataset.enter = viewKey !== lastViewKey ? '1' : '0';
+    lastViewKey = viewKey;
     const focused = /** @type {HTMLElement|null} */ (document.activeElement);
     const key = focused && root.contains(focused) ? focusKey(focused) : null;
     const scrollY = window.scrollY;
@@ -239,6 +248,7 @@ export function startApp(backend, options = {}) {
   function openSheet(draft) {
     S.sheetOpener = document.activeElement;
     S.sheet = draft;
+    lastSheetHtml = '';
     renderSheet();
     sheetRoot.hidden = false;
     backdrop.hidden = false;
@@ -249,11 +259,16 @@ export function startApp(backend, options = {}) {
     else sheetRoot.focus();
   }
 
+  let lastSheetHtml = '';
   function renderSheet() {
     if (!S.sheet) return;
+    const html = S.sheet.kind === 'entry' ? entrySheet(S.sheet, todayIso()) : billSheet(S.sheet);
+    // A live update that changes nothing must not replace the keypad under the finger.
+    if (html === lastSheetHtml) return;
+    lastSheetHtml = html;
     const focused = /** @type {HTMLElement|null} */ (document.activeElement);
     const fkey = focused && sheetRoot.contains(focused) ? focused.getAttribute('data-fkey') : null;
-    sheetRoot.innerHTML = S.sheet.kind === 'entry' ? entrySheet(S.sheet, todayIso()) : billSheet(S.sheet);
+    sheetRoot.innerHTML = html;
     if (fkey) /** @type {HTMLElement|null} */ (sheetRoot.querySelector(`[data-fkey="${CSS.escape(fkey)}"]`))?.focus({ preventScroll: true });
     if (S.sheet.confirmDiscard || S.sheet.confirmDelete) /** @type {HTMLElement|null} */ (sheetRoot.querySelector('[data-fkey="keep"]'))?.focus();
   }
@@ -277,6 +292,7 @@ export function startApp(backend, options = {}) {
     sheetRoot.classList.remove('open');
     backdrop.classList.remove('open');
     document.body.style.overflow = '';
+    lastSheetHtml = '';
     const done = () => { if (!S.sheet) { sheetRoot.hidden = true; backdrop.hidden = true; sheetRoot.innerHTML = ''; } };
     reducedMotion() ? done() : setTimeout(done, 320);
     if (!o.fromPop && history.state?.sheet) history.back();

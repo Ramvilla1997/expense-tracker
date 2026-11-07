@@ -344,7 +344,7 @@ export function planView(s) {
     <header><h1 class="h1">Plan</h1><p class="muted small" style="margin:4px 0 0">${esc(monthLabel(monthOf(s.today)))}</p></header>
     ${budgetCard}${paydayCard}
     <section class="card" aria-labelledby="bills-h"><div class="card-head" style="align-items:center"><h2 class="h2" id="bills-h">Monthly bills</h2>
-      <button type="button" class="btn2" style="min-height:38px" data-action="new-bill">+ Add bill</button></div>
+      <button type="button" class="btn2" data-action="new-bill">+ Add bill</button></div>
       ${billRows || empty('No bills yet', 'Add rent, phone, cards or insurance and Tally will remind you before they’re due.')}</section>
   </div>`;
 }
