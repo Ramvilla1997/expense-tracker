@@ -33,3 +33,19 @@ export function keyFromKeyboard(key) {
   if (key === 'Backspace') return 'back';
   return null;
 }
+
+/**
+ * Why a refused key was refused, so the person is told instead of seeing nothing happen.
+ * Returns '' when the key was not refused (or was a deletion).
+ * @param {string} text
+ * @param {string} key
+ * @returns {string}
+ */
+export function limitMessage(text, key) {
+  if (key === '.' && text.includes('.')) return 'Only one decimal point.';
+  if (!/^\d$/.test(key)) return '';
+  const [whole, fraction] = text.split('.');
+  if (fraction !== undefined && fraction.length >= MAX_DECIMALS) return 'Two decimal places at most.';
+  if (fraction === undefined && whole !== '0' && whole.length >= MAX_WHOLE_DIGITS) return 'That is the largest amount Tally can record.';
+  return '';
+}

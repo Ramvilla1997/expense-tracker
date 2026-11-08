@@ -73,3 +73,18 @@ describe('keypad', () => {
     expect(keyFromKeyboard('a')).toBeNull();
   });
 });
+
+describe('keypad limit messages', () => {
+  it('explains each refused key', async () => {
+    const { limitMessage } = await import('../../public/js/core/keypad.js');
+    expect(limitMessage('12.34', '5')).toBe('Two decimal places at most.');
+    expect(limitMessage('999999999', '9')).toBe('That is the largest amount Tally can record.');
+    expect(limitMessage('1.5', '.')).toBe('Only one decimal point.');
+  });
+  it('says nothing for accepted keys and deletions', async () => {
+    const { limitMessage } = await import('../../public/js/core/keypad.js');
+    expect(limitMessage('12.3', '4')).toBe('');
+    expect(limitMessage('12', 'back')).toBe('');
+    expect(limitMessage('0', '7')).toBe('');
+  });
+});

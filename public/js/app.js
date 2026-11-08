@@ -4,7 +4,7 @@ import { normalizeBill, validateBill, payableMonth, billStatus } from './core/bi
 import { normalizeDebt, validateDebt, balanceLeft, estimate, paymentsFor, debtTypeLabel } from './core/debts.js';
 import { normalizeProfile, validateProfile, guessCurrency, normEmail } from './core/profile.js';
 import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js';
-import { applyKey, keyFromKeyboard } from './core/keypad.js';
+import { applyKey, keyFromKeyboard, limitMessage } from './core/keypad.js';
 import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
 import { currentSubscription, needsHomeScreen, pushSupported, turnOff, turnOn } from './push.js';
@@ -796,7 +796,12 @@ export function startApp(backend, options = {}) {
   function pressKey(key) {
     const d = S.sheet;
     const next = applyKey(d.amountText, key);
-    if (next === d.amountText) return;
+    if (next === d.amountText) {
+      const msg = limitMessage(d.amountText, key);
+      const err = sheetRoot.querySelector('.error');
+      if (msg && err) err.textContent = msg;
+      return;
+    }
     d.amountText = next;
     d.dirty = true;
     d.error = '';
@@ -810,6 +815,8 @@ export function startApp(backend, options = {}) {
     }
     const save = /** @type {HTMLButtonElement|null} */ (sheetRoot.querySelector('[data-action="entry-save"]'));
     if (save) save.disabled = !(next && Number(next) > 0);
+    const hint = /** @type {HTMLElement|null} */ (sheetRoot.querySelector('#save-hint'));
+    if (hint) hint.hidden = Boolean(next && Number(next) > 0);
     const err = sheetRoot.querySelector('.error');
     if (err) err.textContent = '';
   }
