@@ -44,6 +44,7 @@ export function cleanAmount(raw) {
   let text = '';
   let message = '';
   for (const ch of raw) {
+    if (ch === ',') continue; // thousands separator, added back for display
     const key = keyFromKeyboard(ch);
     if (!key || key === 'back') continue;
     const next = applyKey(text, key);

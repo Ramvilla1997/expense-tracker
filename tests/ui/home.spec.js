@@ -122,14 +122,14 @@ test.describe('Home dashboard', () => {
 test.describe('look and feel regressions', () => {
   test('the + button stays white-on-indigo on every tab and while the sheet is open', async ({ page }) => {
     await launch(page);
-    const fab = page.getByRole('button', { name: 'Add an expense or income' });
     for (const tab of ['Home', 'Activity', 'Shared', 'Plan']) {
       await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: tab, exact: true }).click();
+      const fab = page.locator('button.fab');
       await expect(fab).toHaveCSS('color', 'rgb(255, 255, 255)');
       await expect(fab).not.toHaveAttribute('aria-current', /.*/);
     }
-    await fab.click();
-    await expect(fab).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await page.locator('button.fab').click();
+    await expect(page.locator('button.fab')).toHaveCSS('color', 'rgb(255, 255, 255)');
   });
 
   test('no blue tap highlight on any button', async ({ page }) => {

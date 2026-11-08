@@ -83,7 +83,7 @@ test.describe('bill, debt and profile messages', () => {
   test('bill: each invalid field gets its own message', async ({ page }) => {
     await launch(page, member());
     await nav(page, 'Plan');
-    await page.getByRole('button', { name: 'Add a bill' }).click();
+    await page.getByRole('button', { name: 'Add a bill', exact: true }).click();
     const submit = () => dialog(page).getByRole('button', { name: 'Add bill' });
     await submit().click();
     await expect(dialog(page).getByRole('alert')).toHaveText('Give the bill a name.');
@@ -113,8 +113,7 @@ test.describe('bill, debt and profile messages', () => {
     await expect(alert()).toHaveText('The balance date can’t be in the future.');
     await dialog(page).locator('input[name="balanceDate"]').fill('2026-11-01');
     await dialog(page).locator('input[name="minimum"]').fill('-5');
-    await submit().click();
-    await expect(alert()).toHaveText('Enter the monthly minimum, or leave it blank.');
+    await expect(dialog(page).locator('input[name="minimum"]')).toHaveValue('5'); // money fields keep digits only
     await dialog(page).locator('input[name="minimum"]').fill('');
     await dialog(page).locator('input[name="dueDay"]').fill('40');
     await submit().click();

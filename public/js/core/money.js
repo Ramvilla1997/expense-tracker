@@ -75,3 +75,20 @@ export function convert(minor, from, to, rate) {
   if (!(rate > 0) || !Number.isFinite(rate)) throw new RangeError('Exchange rate must be a positive number');
   return from === 'CAD' ? Math.round(minor * rate) : Math.round(minor / rate);
 }
+
+/**
+ * Adds thousands separators to amount text as it is typed: 1,234,567.89 for CAD and 12,34,567.89 for INR.
+ * Works on the plain text (digits and an optional decimal point), so the stored value never contains commas.
+ * @param {string} text
+ * @param {string} currency
+ */
+export function groupAmountText(text, currency) {
+  const [whole, fraction] = String(text).split('.');
+  let grouped = whole;
+  if (whole.length > 3) {
+    grouped = currency === 'INR'
+      ? `${whole.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${whole.slice(-3)}`
+      : whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+}

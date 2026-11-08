@@ -3,7 +3,7 @@ import { normalizeEntry, validateDraft, EXPENSE_CATEGORIES, INCOME_CATEGORIES, D
 import { normalizeBill, validateBill, payableMonth, billStatus } from './core/bills.js';
 import { normalizeDebt, validateDebt, balanceLeft, estimate, paymentsFor, debtTypeLabel } from './core/debts.js';
 import { normalizeProfile, validateProfile, guessCurrency, normEmail } from './core/profile.js';
-import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js';
+import { parseAmount, minorToInput, convert, formatMoney, groupAmountText } from './core/money.js';
 import { cleanAmount } from './core/keypad.js';
 import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
@@ -405,11 +405,11 @@ export function startApp(backend, options = {}) {
   }
 
   /** @param {any} [entry] */
-  function openEntry(entry) {
+  function openEntry(entry, scope = 'mine') {
     const today = todayIso();
     if (!entry) {
       return openSheet({ kind: 'entry', mode: 'add', id: backend.newId('entries'), type: 'expense', amountText: '', currency: S.profile.homeCurrency,
-        category: 'Food', date: today, scope: 'mine', note: '', author: '', error: '', confirmDiscard: false, confirmDelete: false, dirty: false });
+        category: 'Food', date: today, scope, note: '', author: '', error: '', confirmDiscard: false, confirmDelete: false, dirty: false });
     }
     const mine = canEdit(entry, S.user.email);
     const paidDebt = entry.debtId ? S.debts.find((/** @type {any} */ x) => x.id === entry.debtId) : null;
@@ -439,7 +439,7 @@ export function startApp(backend, options = {}) {
     if (!d) return;
     const val = (/** @type {string} */ n) => /** @type {HTMLInputElement|null} */ (sheetRoot.querySelector(`[name="${n}"]`))?.value;
     if (d.kind === 'entry') {
-      d.amountText = val('amount') ?? d.amountText;
+      d.amountText = cleanAmount(val('amount') ?? d.amountText).text;
       d.category = val('category') ?? d.category;
       d.note = val('note') ?? d.note;
       d.date = val('date') ?? d.date;
@@ -806,13 +806,33 @@ export function startApp(backend, options = {}) {
     else if (!sheetRoot.contains(document.activeElement)) { ev.preventDefault(); first.focus(); }
   }
 
+  /**
+   * Cleans a money field as it is typed and shows thousands separators, keeping the caret where the person was.
+   * @param {HTMLInputElement} input @param {string} currency
+   * @returns {{text: string, message: string}} the plain amount text (no separators) and any refusal message
+   */
+  function formatMoneyInput(input, currency) {
+    const raw = input.value;
+    const caret = input.selectionStart ?? raw.length;
+    const kept = cleanAmount(raw.slice(0, caret)).text.length;
+    const { text, message } = cleanAmount(raw);
+    const shown = groupAmountText(text, currency);
+    if (input.value !== shown) {
+      input.value = shown;
+      let pos = 0;
+      let seen = 0;
+      while (pos < shown.length && seen < kept) { if (shown[pos] !== ',') seen++; pos++; }
+      if (document.activeElement === input) input.setSelectionRange(pos, pos);
+    }
+    return { text, message };
+  }
+
   /** Cleans what the person typed in the native amount field and updates the sheet around it, without re-rendering it. */
   function onAmountInput() {
     const d = S.sheet;
     const input = /** @type {HTMLInputElement|null} */ (sheetRoot.querySelector('#amount'));
     if (!d || !input) return;
-    const { text, message } = cleanAmount(input.value);
-    if (input.value !== text) input.value = text;
+    const { text, message } = formatMoneyInput(input, d.currency);
     d.amountText = text;
     d.dirty = true;
     d.error = message;
@@ -868,7 +888,8 @@ export function startApp(backend, options = {}) {
       case 'filter': S.activity.filter = /** @type {any} */ (target.dataset.filter); render(); break;
       case 'activity-month': S.activity.month = shiftMonth(S.activity.month, Number(target.dataset.delta)); render(); break;
       case 'shared-month': S.shared.month = shiftMonth(S.shared.month, Number(target.dataset.delta)); render(); break;
-      case 'new-entry': openEntry(); break;
+      case 'new-entry': openEntry(undefined, target.dataset.scope === 'shared' ? 'shared' : 'mine'); break;
+      case 'bill-kind': if (target.dataset.value === 'debt') openDebt(); break;
       case 'open-entry': openEntry(S.entries.find((/** @type {any} */ e) => e.id === target.dataset.id)); break;
       case 'new-bill': openBill(); break;
       case 'open-bill': openBill(S.bills.find((/** @type {any} */ b) => b.id === target.dataset.id)); break;
@@ -935,6 +956,7 @@ export function startApp(backend, options = {}) {
     const t = /** @type {HTMLElement} */ (ev.target);
     if (S.sheet && sheetRoot.contains(t)) {
       if (t.id === 'amount') { onAmountInput(); return; }
+      if (t.hasAttribute('data-money')) formatMoneyInput(/** @type {HTMLInputElement} */ (t), S.sheet.currency ?? 'CAD');
       S.sheet.dirty = true;
       return;
     }

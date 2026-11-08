@@ -510,10 +510,21 @@ export function profileView(s, f) {
   </div>`;
 }
 
+/**
+ * The Add button adds what the page is about: a bill or card on Plan, a shared expense on Shared, otherwise an entry.
+ * @param {string} route
+ */
+function fab(route) {
+  const plus = icon('plus', { size: 26, stroke: 2.6 });
+  if (route === 'plan') return `<button type="button" class="fab" data-action="new-bill" aria-label="Add a bill, credit card or loan" aria-haspopup="dialog">${plus}</button>`;
+  if (route === 'shared') return `<button type="button" class="fab" data-action="new-entry" data-scope="shared" aria-label="Add a shared expense" aria-haspopup="dialog">${plus}</button>`;
+  return `<button type="button" class="fab" data-action="new-entry" aria-label="Add an expense or income" aria-haspopup="dialog">${plus}</button>`;
+}
+
 /** Tab bar markup. @param {string} route */
 export function tabsView(route) {
   const tab = (/** @type {string} */ r, /** @type {string} */ ic, /** @type {string} */ label) => `<button type="button" class="tab" data-action="go" data-route="${r}" ${route === r ? 'aria-current="page"' : ''}>${icon(ic, { size: 22 })}${label}</button>`;
   return `${tab('home', 'home', 'Home')}${tab('activity', 'activity', 'Activity')}
-    <button type="button" class="fab" data-action="new-entry" aria-label="Add an expense or income" aria-haspopup="dialog">${icon('plus', { size: 26, stroke: 2.6 })}</button>
+    ${fab(route)}
     ${tab('shared', 'shared', 'Shared')}${tab('plan', 'plan', 'Plan')}`;
 }
