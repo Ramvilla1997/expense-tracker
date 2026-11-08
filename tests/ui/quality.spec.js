@@ -118,6 +118,15 @@ test.describe('layout', () => {
     const rowsBox = await rows.boundingBox();
     expect(Math.round(rowsBox.x + rowsBox.width)).toBe(Math.round(segBox.x + segBox.width));
   });
+  test('paired fields on the debt form start at the same height', async ({ page }) => {
+    await launch(page, member(), { hash: '#/plan' });
+    await page.getByRole('button', { name: 'Add a debt' }).click();
+    const dialog = page.getByRole('dialog');
+    for (const pair of await dialog.locator('.pair').all()) {
+      const tops = await pair.locator(':scope > label').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+      expect(new Set(tops).size, `paired fields misaligned: ${tops}`).toBe(1);
+    }
+  });
   test('Welcome page fits', async ({ page }) => {
     await launch(page, { ...member(), user: null });
     await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();

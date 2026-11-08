@@ -202,16 +202,16 @@ export function debtSheet(d, today) {
         ${seg('debt-type', 'card', 'Card', d.type === 'card')}${seg('debt-type', 'loan', 'Loan', d.type === 'loan')}${seg('debt-type', 'person', 'Person', d.type === 'person')}</div></div>
       <div class="field"><span class="label" id="dcur">Currency</span><div class="seg" role="group" aria-labelledby="dcur">
         ${seg('debt-currency', 'CAD', 'CAD', d.currency === 'CAD')}${seg('debt-currency', 'INR', 'INR', d.currency === 'INR')}</div></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="pair">
         <label class="field"><span>Balance owed</span><input class="input" name="balance" data-money inputmode="decimal" placeholder="0.00" value="${esc(d.balanceText)}" autocomplete="off" data-fkey="d-bal"></label>
         <label class="field"><span>As of</span><input class="input" type="date" name="balanceDate" max="${today}" value="${esc(d.balanceDate)}" data-fkey="d-date"></label></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label class="field"><span>Monthly minimum <span class="hint">(optional)</span></span><input class="input" name="minimum" data-money inputmode="decimal" placeholder="None" value="${esc(d.minimumText)}" autocomplete="off" data-fkey="d-min"></label>
-        <label class="field"><span>Due day <span class="hint">(optional)</span></span><input class="input" name="dueDay" inputmode="numeric" placeholder="No fixed date" value="${esc(d.dueDayText)}" autocomplete="off" data-fkey="d-day"></label></div>
-      <label class="field"><span>Interest rate, % a year <span class="hint">(optional, from your statement)</span></span><input class="input" name="apr" inputmode="decimal" placeholder="e.g. 19.99" value="${esc(d.aprText)}" autocomplete="off" data-fkey="d-apr"></label>
+      <div class="pair">
+        <label class="field"><span>Monthly minimum</span><input class="input" name="minimum" data-money inputmode="decimal" placeholder="Optional" value="${esc(d.minimumText)}" autocomplete="off" data-fkey="d-min"></label>
+        <label class="field"><span>Due day</span><input class="input" name="dueDay" inputmode="numeric" placeholder="No fixed date" value="${esc(d.dueDayText)}" autocomplete="off" data-fkey="d-day"></label></div>
+      <label class="field"><span>Interest rate, % a year</span><input class="input" name="apr" inputmode="decimal" placeholder="Optional, e.g. 19.99" value="${esc(d.aprText)}" autocomplete="off" data-fkey="d-apr"></label>
       <div class="field"><span class="label" id="dvis">Who can see it</span><div class="seg" role="group" aria-labelledby="dvis">
         ${seg('debt-scope', 'mine', 'Only me', d.scope === 'mine')}${seg('debt-scope', 'shared', 'Both of you', d.scope === 'shared')}</div></div>
-      <p class="sheet-note">Tally never adds interest to the balance. When a statement arrives, update the balance and its date.</p>
+      <p class="sheet-note">Take the rate from your statement. Tally never adds interest to the balance. When a statement arrives, update the balance and its date.</p>
       <p class="error" role="alert">${esc(d.error)}</p>
       ${confirm || `<div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="debt-delete" data-fkey="d-del">Delete</button>` : ''}
         <button type="submit" class="btn" data-fkey="d-save">${d.mode === 'edit' ? 'Save changes' : 'Add debt'}</button></div>`}

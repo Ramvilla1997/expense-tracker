@@ -196,6 +196,7 @@ button.row:active { background: var(--sunken); }
 
 /* ---------- Forms ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
 .field > span, .field > .label { font-size: 14px; font-weight: 700; color: var(--ink-2); }
 .hint { font-size: 13px; color: var(--muted); font-weight: 500; }
 .input {
