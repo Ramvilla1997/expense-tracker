@@ -525,7 +525,7 @@ export function startApp(backend, options = {}) {
   function openDebt(debt) {
     const blank = { kind: 'debt', error: '', confirmDiscard: false, confirmDelete: false, dirty: false };
     if (!debt) {
-      if (S.debtsBlocked) { toast('Debts aren’t switched on for this household yet. Ask the person who set up Tally to update its rules.'); return; }
+      if (S.debtsBlocked) { toast('Debts aren’t turned on yet. Ask whoever set up Tally to deploy the database rules.'); return; }
       return openSheet({ ...blank, mode: 'add', id: backend.newId('debts'), name: '', type: 'card', currency: S.profile.homeCurrency, balanceText: '', balanceDate: todayIso(),
         minimumText: '', dueDayText: '', aprText: '', scope: 'shared', summary: '' });
     }

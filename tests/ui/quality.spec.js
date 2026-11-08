@@ -107,6 +107,17 @@ test.describe('layout', () => {
     const fits = await sheet.evaluate((el) => el.scrollHeight <= el.clientHeight + 1);
     expect(fits, 'the Add sheet must not scroll').toBe(true);
   });
+  test('the Add sheet rows share the same left and right edges as the switch', async ({ page }) => {
+    await launch(page, rich());
+    const sheet = await openAdd(page);
+    const edge = async (locator) => (await locator.boundingBox()).x;
+    const seg = sheet.getByRole('group', { name: 'Type' });
+    const rows = sheet.locator('.form-rows');
+    expect(Math.round(await edge(rows))).toBe(Math.round(await edge(seg)));
+    const segBox = await seg.boundingBox();
+    const rowsBox = await rows.boundingBox();
+    expect(Math.round(rowsBox.x + rowsBox.width)).toBe(Math.round(segBox.x + segBox.width));
+  });
   test('Welcome page fits', async ({ page }) => {
     await launch(page, { ...member(), user: null });
     await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
