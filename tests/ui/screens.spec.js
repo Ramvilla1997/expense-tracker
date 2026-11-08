@@ -132,7 +132,7 @@ test.describe('Plan', () => {
     await launch(page);
     await nav(page, 'Plan');
     await expect(page.getByText(/Add rent, phone, insurance or subscriptions/)).toBeVisible();
-    await page.getByRole('button', { name: 'Add a bill' }).click();
+    await page.getByRole('button', { name: 'Add a bill', exact: true }).click();
     const sheet = page.getByRole('dialog');
     await expect(sheet.getByLabel('Name')).toBeFocused();
     await sheet.getByRole('button', { name: 'Add bill' }).click();

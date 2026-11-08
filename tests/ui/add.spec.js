@@ -46,13 +46,13 @@ test.describe('Add sheet', () => {
     await expect(sheet.getByRole('button', { name: 'Save expense' })).toBeEnabled();
     await typeAmount(page, '<<<<');
     await typeAmount(page, '1234567');
-    await expect(out).toHaveValue('1234567');
+    await expect(out).toHaveValue('1,234,567');
   });
 
   test('a physical keyboard works too', async ({ page }) => {
     await launch(page);
     await openAdd(page);
-    await page.keyboard.type('42,7');
+    await page.keyboard.type('42.7');
     await expect(page.locator('#amount')).toHaveValue('42.7');
     await page.keyboard.press('Backspace');
     await page.keyboard.press('Enter');
@@ -164,6 +164,30 @@ test.describe('Add sheet', () => {
     await typeAmount(page, '3');
     await sheet.getByRole('button', { name: 'Save expense' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Couldn’t save that entry. You don’t have permission for that.' })).toBeVisible();
+  });
+});
+
+test.describe('what the Add button adds', () => {
+  test('on Plan it adds a bill, and a credit card or loan opens the debt form', async ({ page }) => {
+    await launch(page, member(), { hash: '#/plan' });
+    await page.locator('button.fab').click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByRole('heading', { name: 'Add a monthly bill' })).toBeVisible();
+    await sheet.getByRole('button', { name: 'Credit card or loan' }).click();
+    await expect(sheet.getByRole('heading', { name: 'Add a debt' })).toBeVisible();
+  });
+
+  test('money fields show thousands separators as they are typed', async ({ page }) => {
+    await launch(page);
+    const sheet = await openAdd(page);
+    const currency = sheet.getByRole('button', { name: /Currency (CAD|INR)/ });
+    await typeAmount(page, '1234567');
+    const now = await currency.getAttribute('aria-label');
+    if (now?.includes('INR')) await expect(sheet.locator('#amount')).toHaveValue('12,34,567');
+    else await expect(sheet.locator('#amount')).toHaveValue('1,234,567');
+    await currency.click();
+    if (now?.includes('INR')) await expect(sheet.locator('#amount')).toHaveValue('1,234,567');
+    else await expect(sheet.locator('#amount')).toHaveValue('12,34,567');
   });
 });
 

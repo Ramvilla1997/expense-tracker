@@ -96,7 +96,7 @@ test.describe('layout', () => {
     await launch(page, rich());
     const sheet = await openAdd(page);
     await page.keyboard.type('999999999.99');
-    await expect(sheet.locator('#amount')).toHaveValue('999999999.99');
+    await expect(sheet.locator('#amount')).toHaveValue('999,999,999.99');
     await expectNoHorizontalOverflow(page);
     await sheet.getByRole('button', { name: 'Save expense' }).scrollIntoViewIfNeeded();
     await expect(sheet.getByRole('button', { name: 'Save expense' })).toBeInViewport();

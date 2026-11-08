@@ -1,7 +1,7 @@
 // @ts-check
 import { icon } from './icons.js';
 import { esc } from '../core/text.js';
-import { formatMoney, parseAmount } from '../core/money.js';
+import { formatMoney, groupAmountText, parseAmount } from '../core/money.js';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, NOTE_MAX } from '../core/entries.js';
 import { BILL_NAME_MAX } from '../core/bills.js';
 import { DEBT_NAME_MAX } from '../core/debts.js';
@@ -57,7 +57,7 @@ export const fitClass = (shown) => (shown.length > 15 ? 'fit-3' : shown.length >
  * @param {string} text @param {string} currency @param {string} [toggleAction] when set, the currency is a button that switches it
  */
 const amountField = (text, currency, toggleAction) => `<div class="amount-line">
-      <input id="amount" class="amount-input ${fitClass(text)}" name="amount" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(text)}" aria-label="Amount in ${currency}" data-fkey="amount">
+      <input id="amount" class="amount-input ${fitClass(text)}" name="amount" data-money type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(groupAmountText(text, currency))}" aria-label="Amount in ${currency}" data-fkey="amount">
       ${toggleAction ? `<button type="button" class="cur-switch" data-action="${toggleAction}" aria-label="Currency ${currency}. Tap to switch" data-fkey="cur">${currency} ⇄</button>` : `<span class="amount-cur">${currency}</span>`}</div>`;
 
 /** Says why Save is off, so a disabled button is never a mystery. @param {boolean} canSave @param {string} verb */
@@ -147,13 +147,16 @@ export function entrySheet(d, today) {
 export function billSheet(d) {
   const confirm = confirmPanel(d, { discardTitle: 'Discard this bill?', deleteTitle: 'Delete this bill?', deleteAction: 'bill-delete-confirm' });
   return `${header(d.mode === 'edit' ? 'Edit bill' : 'Add a monthly bill')}
+    ${d.mode === 'add' ? `<div class="seg" role="group" aria-label="What are you adding?">
+      <button type="button" data-action="bill-kind" data-value="bill" aria-pressed="true" data-fkey="k-bill">Monthly bill</button>
+      <button type="button" data-action="bill-kind" data-value="debt" aria-pressed="false" data-fkey="k-debt">Credit card or loan</button></div>` : ''}
     <form class="stack" data-form="bill" novalidate>
       <label class="field"><span>Name</span><input class="input" name="name" maxlength="${BILL_NAME_MAX}" placeholder="e.g. Credit card, Rent, Phone" value="${esc(d.name)}" autocomplete="off" data-fkey="b-name"></label>
       <div class="field"><span class="label" id="bcur">Currency</span><div class="seg" role="group" aria-labelledby="bcur">
         <button type="button" data-action="bill-currency" data-value="CAD" aria-pressed="${d.currency === 'CAD'}" data-fkey="b-cad">CAD</button>
         <button type="button" data-action="bill-currency" data-value="INR" aria-pressed="${d.currency === 'INR'}" data-fkey="b-inr">INR</button></div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label class="field"><span>Amount (${d.currency})</span><input class="input" name="amount" inputmode="decimal" placeholder="0.00" value="${esc(d.amountText)}" autocomplete="off" data-fkey="b-amt"></label>
+        <label class="field"><span>Amount (${d.currency})</span><input class="input" name="amount" data-money inputmode="decimal" placeholder="0.00" value="${esc(d.amountText)}" autocomplete="off" data-fkey="b-amt"></label>
         <label class="field"><span>Due day</span><input class="input" name="dueDay" inputmode="numeric" placeholder="1–31" value="${esc(d.dueDayText)}" autocomplete="off" data-fkey="b-day"></label></div>
       <div class="field"><span class="label" id="bfor">Who pays</span><div class="seg" role="group" aria-labelledby="bfor">
         <button type="button" data-action="bill-scope" data-value="mine" aria-pressed="${d.scope === 'mine'}" data-fkey="b-mine">Me</button>
@@ -200,10 +203,10 @@ export function debtSheet(d, today) {
       <div class="field"><span class="label" id="dcur">Currency</span><div class="seg" role="group" aria-labelledby="dcur">
         ${seg('debt-currency', 'CAD', 'CAD', d.currency === 'CAD')}${seg('debt-currency', 'INR', 'INR', d.currency === 'INR')}</div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label class="field"><span>Balance owed</span><input class="input" name="balance" inputmode="decimal" placeholder="0.00" value="${esc(d.balanceText)}" autocomplete="off" data-fkey="d-bal"></label>
+        <label class="field"><span>Balance owed</span><input class="input" name="balance" data-money inputmode="decimal" placeholder="0.00" value="${esc(d.balanceText)}" autocomplete="off" data-fkey="d-bal"></label>
         <label class="field"><span>As of</span><input class="input" type="date" name="balanceDate" max="${today}" value="${esc(d.balanceDate)}" data-fkey="d-date"></label></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label class="field"><span>Monthly minimum <span class="hint">(optional)</span></span><input class="input" name="minimum" inputmode="decimal" placeholder="None" value="${esc(d.minimumText)}" autocomplete="off" data-fkey="d-min"></label>
+        <label class="field"><span>Monthly minimum <span class="hint">(optional)</span></span><input class="input" name="minimum" data-money inputmode="decimal" placeholder="None" value="${esc(d.minimumText)}" autocomplete="off" data-fkey="d-min"></label>
         <label class="field"><span>Due day <span class="hint">(optional)</span></span><input class="input" name="dueDay" inputmode="numeric" placeholder="No fixed date" value="${esc(d.dueDayText)}" autocomplete="off" data-fkey="d-day"></label></div>
       <label class="field"><span>Interest rate, % a year <span class="hint">(optional, from your statement)</span></span><input class="input" name="apr" inputmode="decimal" placeholder="e.g. 19.99" value="${esc(d.aprText)}" autocomplete="off" data-fkey="d-apr"></label>
       <div class="field"><span class="label" id="dvis">Who can see it</span><div class="seg" role="group" aria-labelledby="dvis">

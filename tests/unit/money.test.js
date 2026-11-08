@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { convert, currencyOrDefault, formatMoney, minorToInput, parseAmount } from '../../public/js/core/money.js';
+import { convert, currencyOrDefault, formatMoney, minorToInput, parseAmount, groupAmountText } from '../../public/js/core/money.js';
 import { applyKey, keyFromKeyboard } from '../../public/js/core/keypad.js';
 
 describe('parseAmount', () => {
@@ -86,5 +86,20 @@ describe('keypad limit messages', () => {
     expect(limitMessage('12.3', '4')).toBe('');
     expect(limitMessage('12', 'back')).toBe('');
     expect(limitMessage('0', '7')).toBe('');
+  });
+});
+
+describe('groupAmountText', () => {
+  it('groups CAD in thousands', () => {
+    expect(groupAmountText('1234567.89', 'CAD')).toBe('1,234,567.89');
+    expect(groupAmountText('999', 'CAD')).toBe('999');
+  });
+  it('groups INR in lakhs and crores', () => {
+    expect(groupAmountText('1234567', 'INR')).toBe('12,34,567');
+    expect(groupAmountText('123456789', 'INR')).toBe('12,34,56,789');
+  });
+  it('keeps a typed decimal point', () => {
+    expect(groupAmountText('1234.', 'CAD')).toBe('1,234.');
+    expect(groupAmountText('.5', 'CAD')).toBe('.5');
   });
 });
