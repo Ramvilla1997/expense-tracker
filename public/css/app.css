@@ -235,7 +235,7 @@ button.row:active { background: var(--sunken); }
 .backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(20,22,43,.32); opacity: 0; transition: opacity .25s ease; }
 .backdrop.open { opacity: 1; }
 .sheet {
-  position: fixed; left: 50%; bottom: 0; z-index: 41; width: min(520px, 100%); max-height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
+  position: fixed; left: 50%; bottom: 0; z-index: 41; width: min(520px, 100%); max-height: 100dvh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
   transform: translate(-50%, 100%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
   border-radius: 28px 28px 0 0; padding: 10px 20px calc(16px + var(--safe-b)); background: var(--card);
   display: flex; flex-direction: column; gap: 10px;
@@ -262,8 +262,8 @@ button.row:active { background: var(--sunken); }
 .amount-input.fit-3 { font-size: 22px; }
 .amount-cur { font-size: 13px; font-weight: 700; color: var(--muted); flex: none; }
 .amount-line .cur-switch { flex: none; }
-.form-rows { display: grid; padding: 2px 16px; }
-.form-rows .row { min-height: 42px; gap: 12px; }
+.form-rows { display: grid; padding: 0; background: none; }
+.form-rows .row { min-height: 42px; gap: 12px; padding: 12px 0; }
 .form-rows .note-row { min-height: 40px; }
 .sheet .error:empty { display: none; }
 .form-rows .input.quiet { max-width: 60%; text-align: right; }
@@ -275,6 +275,8 @@ button.row:active { background: var(--sunken); }
 .actions > .btn { min-height: 56px; }
 .confirm { background: var(--brand-soft); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .confirm .h2 { font-size: 16px; }
+.confirm .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.confirm .actions > .btn-soft.full { width: auto; min-width: 0; }
 .sheet-note { margin: 0; font-size: 14px; color: var(--muted); }
 
 /* ---------- Toast ---------- */

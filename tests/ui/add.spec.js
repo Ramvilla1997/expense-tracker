@@ -213,6 +213,8 @@ test.describe('edit, delete and view', () => {
     const sheet = page.getByRole('dialog');
     await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(sheet.getByText('Delete this entry?')).toBeVisible();
+    await expect(sheet.getByRole('button', { name: 'Delete', exact: true })).toBeInViewport();
+    expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'the sheet must not scroll sideways').toBe(true);
     await sheet.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole('button', { name: /Snacks/ })).toHaveCount(0);
