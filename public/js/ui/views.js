@@ -259,7 +259,7 @@ export function homeView(s) {
         ? `<button type="button" class="btn-soft solid" data-action="pay-debt" data-id="${esc(i.id)}" aria-label="Pay ${esc(i.name)}">Pay</button>`
         : `<button type="button" class="btn-soft" data-action="bill-paid" data-id="${esc(i.id)}" aria-label="Mark paid: ${esc(i.name)}">Mark paid</button>`}</div>`).join('');
   const dueCard = `<section class="section" aria-labelledby="due-h"><div class="section-head"><h2 class="h2" id="due-h">Due soon</h2>${items.length ? `<span class="aside">${esc(money(s, dueTotal))} in 2 weeks</span>` : ''}</div>
-      <div class="list">${dayStrip(s, items)}${items.length ? dueRows : `<p class="muted small" style="margin:0;padding:14px 16px">Nothing due in the next two weeks.</p>`}</div></section>`;
+      <div class="list due">${dayStrip(s, items)}${items.length ? dueRows : `<p class="muted small" style="margin:0;padding:14px 16px">Nothing due in the next two weeks.</p>`}</div></section>`;
 
   const rows = debtRows(s).filter((r) => r.left > 0).sort((a, b2) => b2.leftShown - a.leftShown);
   const totals = debtTotals(visibleDebts(s.debts, s.me), s.entries, disp, rate, month);

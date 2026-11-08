@@ -19,16 +19,16 @@ test.describe('entry sheet: keypad, save and exit', () => {
     await launch(page, member());
     await openAdd(page);
     await typeAmount(page, '12.345');
-    await expect(dialog(page).locator('#amount-out')).toHaveText('12.34');
+    await expect(dialog(page).locator('#amount')).toHaveValue('12.34');
     await typeAmount(page, '.');
-    await expect(dialog(page).locator('#amount-out')).toHaveText('12.34');
-    await dialog(page).locator('[data-key="back"]').click();
-    await dialog(page).locator('[data-key="back"]').click();
-    await dialog(page).locator('[data-key="back"]').click();
-    await dialog(page).locator('[data-key="back"]').click();
-    await dialog(page).locator('[data-key="back"]').click();
+    await expect(dialog(page).locator('#amount')).toHaveValue('12.34');
+    await dialog(page).locator('#amount').press('Backspace');
+    await dialog(page).locator('#amount').press('Backspace');
+    await dialog(page).locator('#amount').press('Backspace');
+    await dialog(page).locator('#amount').press('Backspace');
+    await dialog(page).locator('#amount').press('Backspace');
     await typeAmount(page, '007');
-    await expect(dialog(page).locator('#amount-out')).toHaveText('7');
+    await expect(dialog(page).locator('#amount')).toHaveValue('7');
   });
 
   test('a future date is refused with a clear message and the sheet stays open', async ({ page }) => {
@@ -48,7 +48,7 @@ test.describe('entry sheet: keypad, save and exit', () => {
     await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog(page).getByText('Discard this entry?')).toBeVisible();
     await dialog(page).getByRole('button', { name: 'Keep editing' }).click();
-    await expect(dialog(page).locator('#amount-out')).toHaveText('5');
+    await expect(dialog(page).locator('#amount')).toHaveValue('5');
   });
 
   test('Esc with unsaved changes asks first; Discard closes and the next add starts empty', async ({ page }) => {
@@ -60,7 +60,7 @@ test.describe('entry sheet: keypad, save and exit', () => {
     await dialog(page).getByRole('button', { name: 'Discard' }).click();
     await expect(dialog(page)).toHaveCount(0);
     await openAdd(page);
-    await expect(dialog(page).locator('#amount-out')).toHaveText('0');
+    await expect(dialog(page).locator('#amount')).toHaveValue('');
   });
 
   test('tapping outside the sheet with unsaved changes asks first', async ({ page }) => {

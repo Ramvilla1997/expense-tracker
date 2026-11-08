@@ -4,7 +4,7 @@ import { normalizeBill, validateBill, payableMonth, billStatus } from './core/bi
 import { normalizeDebt, validateDebt, balanceLeft, estimate, paymentsFor, debtTypeLabel } from './core/debts.js';
 import { normalizeProfile, validateProfile, guessCurrency, normEmail } from './core/profile.js';
 import { parseAmount, minorToInput, convert, formatMoney } from './core/money.js';
-import { applyKey, keyFromKeyboard, limitMessage } from './core/keypad.js';
+import { cleanAmount } from './core/keypad.js';
 import { todayIso, monthOf, shiftMonth } from './core/dates.js';
 import { loadRate, readSavedRate } from './core/rates.js';
 import { currentSubscription, needsHomeScreen, pushSupported, turnOff, turnOn } from './push.js';
@@ -332,7 +332,7 @@ export function startApp(backend, options = {}) {
       lastSheetHtml = '';
       renderSheet();
       sheetRoot.scrollTop = 0;
-      sheetRoot.focus();
+      focusFirstField(draft);
       return;
     }
     S.sheetOpener = document.activeElement;
@@ -344,15 +344,28 @@ export function startApp(backend, options = {}) {
     document.body.style.overflow = 'hidden';
     requestAnimationFrame(() => { sheetRoot.classList.add('open'); backdrop.classList.add('open'); });
     history.pushState({ sheet: true }, '', location.hash || '#/home');
-    if ((draft.kind === 'bill' || draft.kind === 'debt') && draft.mode === 'add') /** @type {HTMLElement|null} */ (sheetRoot.querySelector('input[name="name"]'))?.focus();
-    else sheetRoot.focus();
+    focusFirstField(draft);
+  }
+
+  /**
+   * Puts the cursor where the person will type first, so a new entry opens the phone's keyboard at once.
+   * @param {any} draft
+   */
+  function focusFirstField(draft) {
+    const adding = draft.mode === 'add';
+    if (draft.kind === 'entry') {
+      const amount = /** @type {HTMLInputElement|null} */ (sheetRoot.querySelector('#amount'));
+      if (amount && adding) { amount.focus({ preventScroll: true }); amount.setSelectionRange(amount.value.length, amount.value.length); return; }
+    }
+    if ((draft.kind === 'bill' || draft.kind === 'debt') && adding) { /** @type {HTMLElement|null} */ (sheetRoot.querySelector('input[name="name"]'))?.focus(); return; }
+    sheetRoot.focus();
   }
 
   let lastSheetHtml = '';
   function renderSheet() {
     if (!S.sheet) return;
     const html = S.sheet.kind === 'entry' ? entrySheet(S.sheet, todayIso()) : S.sheet.kind === 'debt' ? debtSheet(S.sheet, todayIso()) : billSheet(S.sheet);
-    // A live update that changes nothing must not replace the keypad under the finger.
+    // A live update that changes nothing must not replace the field the person is typing in.
     if (html === lastSheetHtml) return;
     lastSheetHtml = html;
     const focused = /** @type {HTMLElement|null} */ (document.activeElement);
@@ -426,6 +439,8 @@ export function startApp(backend, options = {}) {
     if (!d) return;
     const val = (/** @type {string} */ n) => /** @type {HTMLInputElement|null} */ (sheetRoot.querySelector(`[name="${n}"]`))?.value;
     if (d.kind === 'entry') {
+      d.amountText = val('amount') ?? d.amountText;
+      d.category = val('category') ?? d.category;
       d.note = val('note') ?? d.note;
       d.date = val('date') ?? d.date;
     } else if (d.kind === 'debt') {
@@ -773,11 +788,10 @@ export function startApp(backend, options = {}) {
     if (ev.key === 'Escape') { ev.preventDefault(); requestClose(); return; }
     if (ev.key === 'Tab') trapFocus(ev);
     const target = /** @type {HTMLElement} */ (ev.target);
-    const typing = target.matches('input, textarea, select');
-    if (S.sheet.kind === 'entry' && S.sheet.mode !== 'view' && !typing && !S.sheet.confirmDiscard && !S.sheet.confirmDelete) {
-      if (ev.key === 'Enter' && !target.matches('button')) { ev.preventDefault(); saveEntry(); return; }
-      const key = keyFromKeyboard(ev.key);
-      if (key && !ev.metaKey && !ev.ctrlKey && !ev.altKey) { ev.preventDefault(); pressKey(key); }
+    // Enter in the amount field saves, as the keyboard's Done key does.
+    if (S.sheet.kind === 'entry' && S.sheet.mode !== 'view' && target.id === 'amount' && ev.key === 'Enter' && !S.sheet.confirmDiscard && !S.sheet.confirmDelete) {
+      ev.preventDefault();
+      saveEntry();
     }
   });
 
@@ -792,33 +806,27 @@ export function startApp(backend, options = {}) {
     else if (!sheetRoot.contains(document.activeElement)) { ev.preventDefault(); first.focus(); }
   }
 
-  /** @param {string} key */
-  function pressKey(key) {
+  /** Cleans what the person typed in the native amount field and updates the sheet around it, without re-rendering it. */
+  function onAmountInput() {
     const d = S.sheet;
-    const next = applyKey(d.amountText, key);
-    if (next === d.amountText) {
-      const msg = limitMessage(d.amountText, key);
-      const err = sheetRoot.querySelector('.error');
-      if (msg && err) err.textContent = msg;
-      return;
-    }
-    d.amountText = next;
+    const input = /** @type {HTMLInputElement|null} */ (sheetRoot.querySelector('#amount'));
+    if (!d || !input) return;
+    const { text, message } = cleanAmount(input.value);
+    if (input.value !== text) input.value = text;
+    d.amountText = text;
     d.dirty = true;
-    d.error = '';
-    if (d.debtId) { renderSheet(); return; }
-    const out = sheetRoot.querySelector('#amount-out');
-    const shown = amountDisplay(next);
-    if (out) {
-      out.textContent = shown;
-      out.className = `num ${fitClass(shown)} ${next ? '' : 'placeholder'}`;
-      out.setAttribute('aria-label', `Amount ${shown} ${d.currency}`);
-    }
+    d.error = message;
+    input.className = `amount-input ${fitClass(text)}`;
+    const valid = Boolean(text) && Number(text) > 0;
     const save = /** @type {HTMLButtonElement|null} */ (sheetRoot.querySelector('[data-action="entry-save"]'));
-    if (save) save.disabled = !(next && Number(next) > 0);
+    if (save) save.disabled = !valid;
     const hint = /** @type {HTMLElement|null} */ (sheetRoot.querySelector('#save-hint'));
-    if (hint) hint.hidden = Boolean(next && Number(next) > 0);
+    if (hint) hint.hidden = valid;
     const err = sheetRoot.querySelector('.error');
-    if (err) err.textContent = '';
+    if (err) err.textContent = message;
+    const after = sheetRoot.querySelector('#pay-after');
+    if (after && d.debtId) after.textContent = d.after(text);
+    sheetRoot.querySelectorAll('.opt[data-action="pay-preset"]').forEach((b) => b.setAttribute('aria-pressed', String(b.getAttribute('data-value') === text)));
   }
 
   navigator.serviceWorker?.addEventListener('message', (ev) => {
@@ -898,14 +906,12 @@ export function startApp(backend, options = {}) {
       case 'sheet-close': requestClose(); break;
       case 'sheet-keep': if (d) { d.confirmDiscard = false; d.confirmDelete = false; renderSheet(); } break;
       case 'sheet-discard': closeSheet({ force: true }); break;
-      case 'key': if (d) pressKey(String(target.dataset.key)); break;
       case 'entry-type':
         readSheetInputs();
         d.type = target.dataset.value;
         if (!(d.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).includes(d.category)) d.category = d.type === 'income' ? 'Salary' : 'Food';
         d.dirty = true; renderSheet(); break;
       case 'entry-currency': readSheetInputs(); d.currency = d.currency === 'CAD' ? 'INR' : 'CAD'; d.dirty = true; renderSheet(); break;
-      case 'entry-category': readSheetInputs(); d.category = target.dataset.value; d.dirty = true; renderSheet(); break;
       case 'entry-scope': readSheetInputs(); d.scope = target.dataset.value; d.dirty = true; renderSheet(); break;
       case 'entry-save': saveEntry(); break;
       case 'entry-delete': readSheetInputs(); d.confirmDelete = true; renderSheet(); break;
@@ -927,7 +933,11 @@ export function startApp(backend, options = {}) {
 
   document.addEventListener('input', (ev) => {
     const t = /** @type {HTMLElement} */ (ev.target);
-    if (S.sheet && sheetRoot.contains(t)) { S.sheet.dirty = true; return; }
+    if (S.sheet && sheetRoot.contains(t)) {
+      if (t.id === 'amount') { onAmountInput(); return; }
+      S.sheet.dirty = true;
+      return;
+    }
     if (t.closest('form[data-form="profile"]')) S.formDirty = true;
   });
 

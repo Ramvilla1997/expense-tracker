@@ -96,10 +96,16 @@ test.describe('layout', () => {
     await launch(page, rich());
     const sheet = await openAdd(page);
     await page.keyboard.type('999999999.99');
-    await expect(sheet.locator('#amount-out')).toHaveText('999,999,999.99');
+    await expect(sheet.locator('#amount')).toHaveValue('999999999.99');
     await expectNoHorizontalOverflow(page);
     await sheet.getByRole('button', { name: 'Save expense' }).scrollIntoViewIfNeeded();
     await expect(sheet.getByRole('button', { name: 'Save expense' })).toBeInViewport();
+  });
+  test('the Add sheet is one screen: nothing to scroll', async ({ page }) => {
+    await launch(page, rich());
+    const sheet = await openAdd(page);
+    const fits = await sheet.evaluate((el) => el.scrollHeight <= el.clientHeight + 1);
+    expect(fits, 'the Add sheet must not scroll').toBe(true);
   });
   test('Welcome page fits', async ({ page }) => {
     await launch(page, { ...member(), user: null });

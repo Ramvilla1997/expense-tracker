@@ -10,7 +10,7 @@ test('a refused keypad key says why', async ({ page }) => {
   await typeAmount(page, '12.34');
   await typeAmount(page, '5');
   await expect(dialog(page).getByRole('alert')).toHaveText('Two decimal places at most.');
-  await expect(dialog(page).locator('#amount-out')).toHaveText('12.34');
+  await expect(dialog(page).locator('#amount')).toHaveValue('12.34');
 });
 
 test('Home counts unpaid bills due this month against what is left', async ({ page }) => {
