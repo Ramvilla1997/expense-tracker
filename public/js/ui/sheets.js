@@ -54,100 +54,101 @@ export const fitClass = (shown) => (shown.length > 12 ? 'fit-2' : shown.length >
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'back'];
 
-/** @param {EntryDraft} d */
-function confirmPanel(d) {
+/** Keypad shared by the entry and payment sheets. */
+const keypad = () => `<div class="keypad" role="group" aria-label="Amount keypad">${KEYS.map((k) => `<button type="button" class="key" data-action="key" data-key="${k}" data-fkey="k${k}" ${k === 'back' ? 'aria-label="Delete last digit"' : ''}>${k === 'back' ? '⌫' : k}</button>`).join('')}</div>`;
+
+/** Says why Save is off, so a disabled button is never a mystery. @param {boolean} canSave @param {string} verb */
+const saveHint = (canSave, verb) => `<p class="sheet-note" id="save-hint" style="text-align:center" ${canSave ? 'hidden' : ''}>Type an amount to ${verb}.</p>`;
+
+/**
+ * Confirmation shown inside a sheet instead of its form. Null when nothing needs confirming.
+ * @param {{confirmDiscard: boolean, confirmDelete: boolean}} d
+ * @param {{discardTitle?: string, deleteTitle: string, deleteAction: string, deleteBody?: string}} copy
+ */
+function confirmPanel(d, copy) {
   if (d.confirmDiscard) {
-    return `<div class="tint stack" role="alertdialog" aria-labelledby="cd-h" style="gap:10px"><div class="row-title" id="cd-h">Discard this entry?</div>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Keep editing</button><button type="button" class="btn2 full danger" data-action="sheet-discard">Discard</button></div></div>`;
+    return `<div class="confirm" role="alertdialog" aria-labelledby="cd-h"><div class="row-title" id="cd-h">${esc(copy.discardTitle ?? 'Discard this entry?')}</div>
+      <div class="actions"><button type="button" class="btn-soft full" data-action="sheet-keep" data-fkey="keep">Keep editing</button><button type="button" class="btn-soft danger full" data-action="sheet-discard">Discard</button></div></div>`;
   }
   if (d.confirmDelete) {
-    return `<div class="tint stack" role="alertdialog" aria-labelledby="cdel-h" style="gap:10px"><div class="row-title" id="cdel-h">Delete this entry?</div><p class="small" style="margin:0">You can undo right after.</p>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Cancel</button><button type="button" class="btn2 full danger" data-action="entry-delete-confirm">Delete</button></div></div>`;
+    return `<div class="confirm" role="alertdialog" aria-labelledby="cdel-h"><div class="row-title" id="cdel-h">${esc(copy.deleteTitle)}</div>
+      <p class="sheet-note">${esc(copy.deleteBody ?? 'You can undo right after.')}</p>
+      <div class="actions"><button type="button" class="btn-soft full" data-action="sheet-keep" data-fkey="keep">Cancel</button><button type="button" class="btn-soft danger full" data-action="${copy.deleteAction}">Delete</button></div></div>`;
   }
   return '';
 }
 
+/** Header row with a title and a close button. @param {string} title */
+const header = (title) => `<div class="grabber" aria-hidden="true"></div>
+    <div class="spread"><h2 class="h2" id="sheet-title">${title}</h2>
+      <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>`;
+
 /**
  * Paying a debt: the same keypad and save flow as an entry, with the debt's choices instead of categories.
- * @param {EntryDraft & {debtName:string, presets:{label:string, amountText:string}[], leftText:string, after:(t:string)=>string}} d
+ * @param {EntryDraft & {debtName:string, presets:{label:string, amountText:string}[], after:(t:string)=>string}} d
  * @param {string} today
  */
 function paySheet(d, today) {
   const shown = amountDisplay(d.amountText);
   const canSave = Boolean(d.amountText) && Number(d.amountText) > 0;
-  const confirm = confirmPanel(d);
+  const confirm = confirmPanel(d, { deleteTitle: 'Delete this payment?', deleteAction: 'entry-delete-confirm' });
   const symbol = d.currency === 'CAD' ? '$' : '₹';
-  return `<div class="grabber" aria-hidden="true"></div>
-    <div class="spread"><h2 class="h2" id="sheet-title">${d.mode === 'edit' ? 'Edit payment' : `Pay ${esc(d.debtName)}`}</h2>
-      <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
-    <div class="amount-display">
-      <output class="num ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${symbol}${esc(shown)}</output>
-      <div class="muted small" id="pay-after">${esc(d.after(d.amountText))}</div></div>
+  const title = d.mode === 'edit' ? 'Edit payment' : `Pay ${esc(d.debtName)}`;
+  return `${header(title)}
+    <div class="amount">
+      <output class="figure ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${symbol}${esc(shown)}</output>
+      <div class="sub" id="pay-after">${esc(d.after(d.amountText))}</div></div>
     ${d.presets.length ? `<div class="opts" role="group" aria-label="Choose amount">${d.presets.map((p, i) => `<button type="button" class="opt" data-action="pay-preset" data-value="${esc(p.amountText)}" aria-pressed="${d.amountText === p.amountText}" data-fkey="pre${i}"><span>${esc(p.label)}</span><b>${symbol}${esc(amountDisplay(p.amountText))}</b></button>`).join('')}</div>` : ''}
-    <div class="card"><label class="row" style="min-height:54px"><span class="row-title">Date</span>
-      <input class="input" style="max-width:190px;min-height:42px" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label></div>
+    <label class="field"><span>Date</span>
+      <input class="input" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
     <p class="error" role="alert">${esc(d.error)}</p>
-    ${confirm || `<div class="keypad" role="group" aria-label="Amount keypad">${KEYS.map((k) => `<button type="button" class="key" data-action="key" data-key="${k}" data-fkey="k${k}" ${k === 'back' ? 'aria-label="Delete last digit"' : ''}>${k === 'back' ? '⌫' : k}</button>`).join('')}</div>
-    <div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="entry-delete" data-fkey="del" style="flex:none">Delete</button>` : ''}
+    ${confirm || `${keypad()}${saveHint(canSave, 'pay')}
+    <div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="entry-delete" data-fkey="del">Delete</button>` : ''}
       <button type="button" class="btn" data-action="entry-save" data-fkey="save" ${canSave ? '' : 'disabled'}>${d.mode === 'edit' ? 'Save changes' : `Pay ${symbol}${esc(shown)}`}</button></div>
-    <p class="muted small" style="margin:-4px 0 0;text-align:center">Counts towards the debt, not your spending.</p>`}`;
+    <p class="sheet-note" style="text-align:center">Counts towards the debt, not your spending.</p>`}`;
 }
 
 /** @param {EntryDraft} d @param {string} today */
 export function entrySheet(d, today) {
   if (/** @type {any} */ (d).debtId && d.mode !== 'view') return paySheet(/** @type {any} */ (d), today);
   if (d.mode === 'view') {
-    return `<div class="grabber" aria-hidden="true"></div>
-      <div class="spread"><h2 class="h2" id="sheet-title">${d.type === 'income' ? 'Income' : 'Expense'} details</h2>
-        <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
-      <div class="card">
-        ${[['Amount', formatMoney(parseAmount(d.amountText) ?? 0, d.currency)], ['Category', d.category], ['Date', longDate(d.date)], ['For', d.scope === 'shared' ? 'Shared (50/50)' : 'Personal'], ['Added by', d.author], ...(d.note ? [['Note', d.note]] : [])]
-          .map(([k, v]) => `<div class="row" style="min-height:52px"><span class="muted">${k}</span><span class="row-title" style="text-align:right;overflow-wrap:anywhere">${esc(v)}</span></div>`).join('')}
-      </div>
-      <p class="muted small" style="margin:0">Only ${esc(d.author)} can change this entry. If something’s wrong, let them know.</p>`;
+    const rows = [['Amount', formatMoney(parseAmount(d.amountText) ?? 0, d.currency)], ['Category', d.category], ['Date', longDate(d.date)], ['For', d.scope === 'shared' ? 'Shared (50/50)' : 'Personal'], ['Added by', d.author], ...(d.note ? [['Note', d.note]] : [])];
+    return `${header(`${d.type === 'income' ? 'Income' : 'Expense'} details`)}
+      <div class="panel">${rows.map(([k, v]) => `<div class="row"><span class="row-meta">${k}</span><span class="row-title" style="text-align:right;overflow-wrap:anywhere">${esc(v)}</span></div>`).join('')}</div>
+      <p class="sheet-note">Only ${esc(d.author)} can change this entry. If something’s wrong, let them know.</p>`;
   }
   const cats = d.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   const shown = amountDisplay(d.amountText);
   const canSave = Boolean(d.amountText) && Number(d.amountText) > 0;
-  const confirm = confirmPanel(d);
-  return `<div class="grabber" aria-hidden="true"></div>
-    <div class="spread"><h2 class="h2" id="sheet-title">${d.mode === 'edit' ? 'Edit entry' : 'Add an entry'}</h2>
-      <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
+  const confirm = confirmPanel(d, { discardTitle: 'Discard this entry?', deleteTitle: 'Delete this entry?', deleteAction: 'entry-delete-confirm' });
+  return `${header(d.mode === 'edit' ? 'Edit entry' : 'Add an entry')}
     <div class="seg" role="group" aria-label="Type">
       <button type="button" data-action="entry-type" data-value="expense" aria-pressed="${d.type === 'expense'}" data-fkey="t-exp">Expense</button>
       <button type="button" data-action="entry-type" data-value="income" aria-pressed="${d.type === 'income'}" data-fkey="t-inc">Income</button></div>
-    <div class="amount-display">
+    <div class="amount">
       <button type="button" class="cur-switch" data-action="entry-currency" aria-label="Currency ${d.currency}. Tap to switch" data-fkey="cur">${d.currency} ⇄</button>
-      <output class="num ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${esc(shown)}</output></div>
+      <output class="figure ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${esc(shown)}</output></div>
     <div class="chips scroll" role="group" aria-label="Category">${cats.map((c) => `<button type="button" class="chip" data-action="entry-category" data-value="${esc(c)}" aria-pressed="${d.category === c}" data-fkey="cat-${esc(c)}">${icon(c)}${esc(c)}</button>`).join('')}</div>
-    <div class="card" style="box-shadow:none;border-radius:16px">
-      <label class="row" style="min-height:54px"><span class="row-title" style="font-size:14px">Date</span>
-        <input class="input" style="max-width:190px;min-height:42px" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
-      ${d.type === 'expense' ? `<div class="row" style="min-height:54px"><span class="row-title" style="font-size:14px" id="for-lbl">Who it’s for</span>
+    <div class="panel panel-pad" style="display:grid;gap:4px">
+      <label class="row" style="min-height:48px"><span class="row-title">Date</span>
+        <input class="input quiet" style="max-width:190px" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
+      ${d.type === 'expense' ? `<div class="row" style="min-height:48px"><span class="row-title" id="for-lbl">Who it’s for</span>
         <div class="seg" role="group" aria-labelledby="for-lbl" style="min-width:190px">
           <button type="button" data-action="entry-scope" data-value="mine" aria-pressed="${d.scope === 'mine'}" data-fkey="s-mine">Personal</button>
           <button type="button" data-action="entry-scope" data-value="shared" aria-pressed="${d.scope === 'shared'}" data-fkey="s-shared">Shared</button></div></div>` : ''}
-      <label class="row" style="min-height:54px"><span class="sr-only">Note</span>
-        <input class="input" style="border:0;padding:0;min-height:40px" name="note" maxlength="${NOTE_MAX}" placeholder="Add a note (optional)" value="${esc(d.note)}" autocomplete="off" data-fkey="note"></label>
+      <label class="row" style="min-height:48px"><span class="sr-only">Note</span>
+        <input class="input quiet" name="note" maxlength="${NOTE_MAX}" placeholder="Add a note (optional)" value="${esc(d.note)}" autocomplete="off" data-fkey="note"></label>
     </div>
     <p class="error" role="alert">${esc(d.error)}</p>
-    ${confirm || `<div class="keypad" role="group" aria-label="Amount keypad">${KEYS.map((k) => `<button type="button" class="key" data-action="key" data-key="${k}" data-fkey="k${k}" ${k === 'back' ? 'aria-label="Delete last digit"' : ''}>${k === 'back' ? '⌫' : k}</button>`).join('')}</div>
-    <div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="entry-delete" data-fkey="del" style="flex:none">Delete</button>` : ''}
+    ${confirm || `${keypad()}${saveHint(canSave, 'save')}
+    <div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="entry-delete" data-fkey="del">Delete</button>` : ''}
       <button type="button" class="btn" data-action="entry-save" data-fkey="save" ${canSave ? '' : 'disabled'}>${d.mode === 'edit' ? 'Save changes' : `Save ${d.type}`}</button></div>`}`;
 }
 
 /** @param {BillDraft} d */
 export function billSheet(d) {
-  const confirm = d.confirmDiscard
-    ? `<div class="tint stack" role="alertdialog" aria-labelledby="cd-h" style="gap:10px"><div class="row-title" id="cd-h">Discard this bill?</div>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Keep editing</button><button type="button" class="btn2 full danger" data-action="sheet-discard">Discard</button></div></div>`
-    : d.confirmDelete
-      ? `<div class="tint stack" role="alertdialog" aria-labelledby="cdel-h" style="gap:10px"><div class="row-title" id="cdel-h">Delete this bill?</div>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Cancel</button><button type="button" class="btn2 full danger" data-action="bill-delete-confirm">Delete</button></div></div>`
-      : '';
-  return `<div class="grabber" aria-hidden="true"></div>
-    <div class="spread"><h2 class="h2" id="sheet-title">${d.mode === 'edit' ? 'Edit bill' : 'Add a monthly bill'}</h2>
-      <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
+  const confirm = confirmPanel(d, { discardTitle: 'Discard this bill?', deleteTitle: 'Delete this bill?', deleteAction: 'bill-delete-confirm' });
+  return `${header(d.mode === 'edit' ? 'Edit bill' : 'Add a monthly bill')}
     <form class="stack" data-form="bill" novalidate>
       <label class="field"><span>Name</span><input class="input" name="name" maxlength="${BILL_NAME_MAX}" placeholder="e.g. Credit card, Rent, Phone" value="${esc(d.name)}" autocomplete="off" data-fkey="b-name"></label>
       <div class="field"><span class="label" id="bcur">Currency</span><div class="seg" role="group" aria-labelledby="bcur">
@@ -159,9 +160,9 @@ export function billSheet(d) {
       <div class="field"><span class="label" id="bfor">Who pays</span><div class="seg" role="group" aria-labelledby="bfor">
         <button type="button" data-action="bill-scope" data-value="mine" aria-pressed="${d.scope === 'mine'}" data-fkey="b-mine">Me</button>
         <button type="button" data-action="bill-scope" data-value="shared" aria-pressed="${d.scope === 'shared'}" data-fkey="b-shared">Shared</button></div></div>
-      <p class="muted small" style="margin:0">Due days after the 28th move to the last day in shorter months.</p>
+      <p class="sheet-note">Due days after the 28th move to the last day in shorter months.</p>
       <p class="error" role="alert">${esc(d.error)}</p>
-      ${confirm || `<div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="bill-delete" style="flex:none" data-fkey="b-del">Delete</button>` : ''}
+      ${confirm || `<div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="bill-delete" data-fkey="b-del">Delete</button>` : ''}
         <button type="submit" class="btn" data-fkey="b-save">${d.mode === 'edit' ? 'Save changes' : 'Add bill'}</button></div>`}
     </form>`;
 }
@@ -189,19 +190,12 @@ export function billSheet(d) {
 
 /** @param {DebtDraft} d @param {string} today */
 export function debtSheet(d, today) {
-  const confirm = d.confirmDiscard
-    ? `<div class="tint stack" role="alertdialog" aria-labelledby="cd-h" style="gap:10px"><div class="row-title" id="cd-h">Discard your changes?</div>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Keep editing</button><button type="button" class="btn2 full danger" data-action="sheet-discard">Discard</button></div></div>`
-    : d.confirmDelete
-      ? `<div class="tint stack" role="alertdialog" aria-labelledby="cdel-h" style="gap:10px"><div class="row-title" id="cdel-h">Delete this debt?</div><p class="small" style="margin:0">Its payments stay in Activity. You can undo right after.</p>
-      <div class="sheet-actions"><button type="button" class="btn2 full" data-action="sheet-keep" data-fkey="keep">Cancel</button><button type="button" class="btn2 full danger" data-action="debt-delete-confirm">Delete</button></div></div>`
-      : '';
+  const confirm = confirmPanel(d, { discardTitle: 'Discard your changes?', deleteTitle: 'Delete this debt?', deleteAction: 'debt-delete-confirm', deleteBody: 'Its payments stay in Activity. You can undo right after.' });
   const seg = (/** @type {string} */ action, /** @type {string} */ value, /** @type {string} */ label, /** @type {boolean} */ on) => `<button type="button" data-action="${action}" data-value="${value}" aria-pressed="${on}" data-fkey="${action}-${value}">${label}</button>`;
-  return `<div class="grabber" aria-hidden="true"></div>
-    <div class="spread"><h2 class="h2" id="sheet-title">${d.mode === 'edit' ? esc(d.name) : 'Add a debt'}</h2>
-      <button type="button" class="icon-btn" data-action="sheet-close" aria-label="Close" data-fkey="close">${icon('close')}</button></div>
+  const readOnly = Boolean(/** @type {any} */ (d).readOnly);
+  return `${header(d.mode === 'edit' ? esc(d.name) : 'Add a debt')}
     ${d.summary}
-    ${/** @type {any} */ (d).readOnly ? '' : `<form class="stack" data-form="debt" novalidate>
+    ${readOnly ? '' : `<form class="stack" data-form="debt" novalidate>
       <label class="field"><span>Name</span><input class="input" name="name" maxlength="${DEBT_NAME_MAX}" placeholder="e.g. MBNA, Car loan, Phani" value="${esc(d.name)}" autocomplete="off" data-fkey="d-name"></label>
       <div class="field"><span class="label" id="dtype">Type</span><div class="seg" role="group" aria-labelledby="dtype">
         ${seg('debt-type', 'card', 'Card', d.type === 'card')}${seg('debt-type', 'loan', 'Loan', d.type === 'loan')}${seg('debt-type', 'person', 'Person', d.type === 'person')}</div></div>
@@ -216,9 +210,9 @@ export function debtSheet(d, today) {
       <label class="field"><span>Interest rate, % a year <span class="hint">(optional, from your statement)</span></span><input class="input" name="apr" inputmode="decimal" placeholder="e.g. 19.99" value="${esc(d.aprText)}" autocomplete="off" data-fkey="d-apr"></label>
       <div class="field"><span class="label" id="dvis">Who can see it</span><div class="seg" role="group" aria-labelledby="dvis">
         ${seg('debt-scope', 'mine', 'Only me', d.scope === 'mine')}${seg('debt-scope', 'shared', 'Both of you', d.scope === 'shared')}</div></div>
-      <p class="muted small" style="margin:0">Tally never adds interest to the balance. When a statement arrives, update the balance and its date.</p>
+      <p class="sheet-note">Tally never adds interest to the balance. When a statement arrives, update the balance and its date.</p>
       <p class="error" role="alert">${esc(d.error)}</p>
-      ${confirm || `<div class="sheet-actions">${d.mode === 'edit' ? `<button type="button" class="btn2 danger" data-action="debt-delete" style="flex:none" data-fkey="d-del">Delete</button>` : ''}
+      ${confirm || `<div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="debt-delete" data-fkey="d-del">Delete</button>` : ''}
         <button type="submit" class="btn" data-fkey="d-save">${d.mode === 'edit' ? 'Save changes' : 'Add debt'}</button></div>`}
     </form>`}`;
 }

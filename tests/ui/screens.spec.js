@@ -16,10 +16,10 @@ test.describe('Activity', () => {
     await launch(page, data());
     await nav(page, 'Activity');
     await expect(page.getByRole('heading', { name: 'November 2026' })).toBeVisible();
-    const days = page.locator('main section.card');
+    const days = page.locator('main section.panel');
     await expect(days.nth(0).getByRole('heading')).toHaveText('Today');
     await expect(days.nth(1).getByRole('heading')).toHaveText('Yesterday');
-    await expect(days.nth(1).locator('.card-head')).toContainText('−$20.00'); // income not counted in the day total
+    await expect(days.nth(1).locator('.panel-head')).toContainText('−$20.00'); // income not counted in the day total
     await expect(page.getByRole('button', { name: /Internet.*Food · Shared · by Vamsi.*\$20\.00/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Gone/ })).toHaveCount(0);
   });
@@ -34,6 +34,14 @@ test.describe('Activity', () => {
     await expect(page.getByRole('button', { name: /Pay/ })).toBeVisible();
     await page.getByRole('button', { name: 'Previous month' }).click();
     await expect(page.getByText('No income recorded this month.')).toBeVisible();
+  });
+
+  test('each filter total carries its own sign: spending −, income +, debt payments none', async ({ page }) => {
+    await launch(page, data());
+    await nav(page, 'Activity');
+    await expect(page.getByLabel('Spent in this view')).toHaveText('−$30.00');
+    await page.getByRole('button', { name: 'Income', exact: true }).click();
+    await expect(page.getByLabel('Income in this view')).toHaveText('+$3,000.00');
   });
 
   test('month switcher stops at the oldest entry and the current month', async ({ page }) => {

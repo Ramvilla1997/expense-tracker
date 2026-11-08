@@ -17,7 +17,7 @@ test.describe('Home dashboard', () => {
     await expect(hero.getByText('$75.00')).toBeVisible();
   });
 
-  test('with income: what is left, split into debts, bills and spending', async ({ page }) => {
+  test('with income: what is left, after debts, bills and spending', async ({ page }) => {
     await launch(page, member({
       debts: { d1: mbna },
       entries: Object.fromEntries([
@@ -30,8 +30,8 @@ test.describe('Home dashboard', () => {
     const hero = page.getByRole('region', { name: 'This month' });
     await expect(hero.getByText('Left for November')).toBeVisible();
     await expect(hero.getByText('$2,119.00')).toBeVisible(); // 3,800 − 1,400 − 240 − 41
-    await expect(hero.getByText('of $3,800.00 income this month')).toBeVisible();
-    await expect(hero.getByRole('img', { name: 'Debts $1,400, Bills $240, Spent $41, Left $2,119' })).toBeVisible();
+    await expect(hero.getByText('of $3,800.00 income')).toBeVisible();
+    await expect(hero).not.toContainText('still to pay');
     // The $1,400 debt payment is not spending: today's safe amount ignores it.
     await expect(hero.getByText('Safe to spend today')).toBeVisible();
   });
@@ -110,15 +110,12 @@ test.describe('Home dashboard', () => {
     await expect(page.getByRole('dialog').getByRole('heading', { name: 'Add a debt' })).toBeVisible();
   });
 
-  test('install hint can be dismissed for good', async ({ page }) => {
-    await launch(page);
-    const hint = page.getByRole('region', { name: 'Install Tally' });
-    await expect(hint).toBeVisible();
-    await hint.getByRole('button', { name: 'Dismiss' }).click();
-    await expect(hint).toHaveCount(0);
-    await page.reload();
+  test('Home has no install banner; the install steps live in Profile', async ({ page }) => {
+    await launch(page, undefined, { install: true });
     await expect(page.getByRole('heading', { name: /Good morning/ })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Install Tally' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Profile and settings' }).click();
+    await expect(page.getByRole('heading', { name: 'Install on your phone' })).toBeVisible();
   });
 });
 

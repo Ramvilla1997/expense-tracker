@@ -4,7 +4,7 @@ import { esc, firstName, initial } from '../core/text.js';
 import { convert, formatMoney } from '../core/money.js';
 import { addDays, dayLabel, daysInMonth, greeting, longDate, monthLabel, monthOf, nextPayday, parseIso, shiftMonth, shortDate, daysBetween } from '../core/dates.js';
 import { active, applyFilter, debtPaidTotal, groupByDay, inMonth, settleUp, sharedByPerson, total } from '../core/entries.js';
-import { budgetView, myPart } from '../core/budget.js';
+import { SHARED_SPLIT, budgetView, myPart } from '../core/budget.js';
 import { sortBills } from '../core/bills.js';
 import { balanceLeft, debtStatus, debtTotals, estimate, visibleDebts } from '../core/debts.js';
 
@@ -32,8 +32,7 @@ import { balanceLeft, debtStatus, debtTotals, estimate, visibleDebts } from '../
  * @property {string} version
  */
 
-const PERSON_COLORS = ['var(--p1)', 'var(--p2)', 'var(--p3)', '#475069'];
-const LOGO = '<img class="logo lg" src="icon.svg" alt="" width="84" height="84">';
+const PERSON_COLORS = ['var(--brand)', '#C2410C', '#0F766E', '#475069'];
 
 // ---------- helpers ----------
 
@@ -49,12 +48,18 @@ const display = (s) => s.profile.displayCurrency;
 /** @param {ViewState} s @param {number} minor @param {any} [opts] */
 const money = (s, minor, opts) => formatMoney(minor, display(s), opts);
 
+/** @param {ViewState} s @param {number} minor @param {Currency} currency */
+const shown = (s, minor, currency) => money(s, convert(minor, currency, display(s), s.rate.rate));
+
+/** @param {string} iso */
+const weekdayDay = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
+
 /** @param {ViewState} s @param {Entry} e */
 function entryAmount(s, e) {
-  const shown = convert(e.amount, e.currency, display(s), s.rate.rate);
-  const text = formatMoney(shown, display(s), { sign: e.type === 'income' ? 'income' : 'expense' });
-  const original = e.currency !== display(s) ? `<div class="row-meta">${esc(formatMoney(e.amount, e.currency))}</div>` : '';
-  return `<div style="text-align:right"><div class="row-amt ${e.type === 'income' ? 'pos' : ''}">${esc(text)}</div>${original}</div>`;
+  const amount = convert(e.amount, e.currency, display(s), s.rate.rate);
+  const text = formatMoney(amount, display(s), { sign: e.type === 'income' ? 'income' : 'expense' });
+  const original = e.currency !== display(s) ? `<span class="row-meta">${esc(formatMoney(e.amount, e.currency))}</span>` : '';
+  return `<span class="row-end"><span class="row-amt ${e.type === 'income' ? 'in' : ''}">${esc(text)}</span>${original}</span>`;
 }
 
 /** @param {ViewState} s @param {Entry} e @param {{showDate?: boolean}} [o] */
@@ -63,25 +68,37 @@ function entryRow(s, e, o = {}) {
   if (e.type === 'expense' && e.scope === 'shared' && !e.debtId) parts.push('Shared');
   if (e.by !== s.me || e.scope === 'shared') parts.push(`by ${personName(s, e.by)}`);
   if (o.showDate) parts.push(dayLabel(e.date, s.today));
-  const title = e.note || (e.type === 'income' ? e.category : e.category);
+  const title = e.note || e.category;
   return `<button type="button" class="row" data-action="open-entry" data-id="${esc(e.id)}">
-    <span class="row-main"><span class="ico">${icon(e.category)}</span>
-      <span class="ellipsis"><span class="row-title ellipsis" style="display:block">${esc(title)}${e.pending ? '<span class="syncing">Syncing</span>' : ''}</span>
-      <span class="row-meta ellipsis" style="display:block">${esc(parts.join(' · '))}</span></span></span>
+    <span class="row-main"><span class="ico" aria-hidden="true">${icon(e.category)}</span>
+      <span class="row-body"><span class="row-title ellipsis">${esc(title)}${e.pending ? '<span class="syncing">Syncing</span>' : ''}</span>
+      <span class="row-meta ellipsis">${esc(parts.join(' · '))}</span></span></span>
     ${entryAmount(s, e)}</button>`;
 }
 
 /** @param {ViewState} s */
-function currencyToggle(s, onHero = true) {
-  return `<div class="seg ${onHero ? 'on-hero' : ''}" role="group" aria-label="Show amounts in">
+function currencyToggle(s) {
+  return `<div class="seg" role="group" aria-label="Show amounts in">
     ${['CAD', 'INR'].map((c) => `<button type="button" data-action="set-display" data-currency="${c}" aria-pressed="${display(s) === c}">${c}</button>`).join('')}</div>`;
 }
 
 /** @param {string} title @param {string} body */
-const empty = (title, body) => `<div class="card-pad" style="text-align:center;padding:26px 18px"><div class="row-title">${esc(title)}</div><p class="muted small" style="margin:4px 0 0">${body}</p></div>`;
+const empty = (title, body) => `<div style="text-align:center;padding:26px 18px"><div class="row-title">${esc(title)}</div><p class="muted small" style="margin:6px 0 0">${body}</p></div>`;
+
+/** Debts I can see, each with what is left and its status. @param {ViewState} s */
+function debtRows(s) {
+  return visibleDebts(s.debts, s.me).map((debt) => {
+    const left = balanceLeft(debt, s.entries, s.rate.rate);
+    return { debt, left, leftShown: convert(left, debt.currency, display(s), s.rate.rate), status: debtStatus(debt, s.entries, s.today, s.rate.rate) };
+  });
+}
+
+/** @param {ViewState} s */
+const visibleBills = (s) => s.bills.filter((x) => !x.deleted && (x.by === s.me || x.scope === 'shared'));
 
 // ---------- pre-app screens ----------
 
+/** @param {boolean} [slow] */
 export function splashView(slow = false) {
   return `<section class="splash" aria-busy="${!slow}" aria-label="Loading Tally">
     <div style="display:grid;gap:14px;justify-items:center">
@@ -92,16 +109,16 @@ export function splashView(slow = false) {
 
 /** @param {{error?: string, busy?: boolean}} o */
 export function welcomeView({ error = '', busy = false } = {}) {
-  const how = [
+  const points = [
     ['plus', 'Add in seconds', 'Tap +, type the amount, done. Works offline too.'],
     ['wallet', 'Know what’s safe to spend', 'Set a monthly budget and see today’s amount at a glance.'],
     ['shared', 'Share costs fairly', 'Mark shared costs and see who owes whom, in CAD or INR.'],
   ];
-  return `<section class="center-screen view-enter">
-    <div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px">${LOGO}
-      <h1 class="h1" style="font-size:34px">Tally</h1>
+  return `<section class="center view-enter">
+    <div class="stack" style="gap:12px"><img class="logo lg" src="icon.svg" alt="" width="84" height="84">
+      <h1 class="title" style="font-size:34px">Tally</h1>
       <p class="muted" style="margin:0;font-size:17px">Shared expenses, simply counted.</p></div>
-    <div class="card card-pad stack">${how.map(([ic, t, d]) => `<div class="how"><span class="ico">${icon(ic)}</span><div><div class="row-title">${t}</div><div class="muted small">${d}</div></div></div>`).join('')}</div>
+    <div class="panel panel-pad stack" style="gap:18px">${points.map(([ic, t, d]) => `<div class="point"><span class="ico">${icon(ic)}</span><div><div class="row-title">${t}</div><div class="muted small">${d}</div></div></div>`).join('')}</div>
     <button type="button" class="btn" data-action="sign-in" ${busy ? 'disabled aria-busy="true"' : ''}>${busy ? 'Opening Google…' : 'Sign in with Google'}</button>
     <p class="error" role="alert">${esc(error)}</p>
     <p class="muted small" style="margin:0;text-align:center">${icon('lock', { size: 14 })} Private: only invited family members can get in.</p>
@@ -110,38 +127,28 @@ export function welcomeView({ error = '', busy = false } = {}) {
 
 /** @param {string} email */
 export function deniedView(email) {
-  return `<section class="center-screen view-enter">${LOGO}
-    <h1 class="h1">Not invited yet</h1>
+  return `<section class="center view-enter"><img class="logo lg" src="icon.svg" alt="" width="84" height="84">
+    <h1 class="title">Not invited yet</h1>
     <p class="muted" style="margin:0">You’re signed in as <strong>${esc(email)}</strong>. Tally is private, so ask the person who set it up to add this email, then sign in again.</p>
     <button type="button" class="btn" data-action="switch-account">Use a different Google account</button>
     <button type="button" class="btn2 full" data-action="sign-out">Sign out</button></section>`;
 }
 
 export function offlineView() {
-  return `<section class="center-screen view-enter">${LOGO}
-    <h1 class="h1">Can’t reach Tally</h1>
+  return `<section class="center view-enter"><img class="logo lg" src="icon.svg" alt="" width="84" height="84">
+    <h1 class="title">Can’t reach Tally</h1>
     <p class="muted" style="margin:0">Check your internet connection and try again. Nothing you saved is lost.</p>
     <button type="button" class="btn" data-action="reload">Try again</button></section>`;
 }
 
 /**
- * @param {{name:string, homeCurrency:string, budgetText:string, payFrequency:string, payAnchor:string, errors: Record<string,string>, saving:boolean}} f
+ * Shared by Setup and Profile.
+ * @param {any} f
  */
-export function setupView(f) {
-  return `<section class="stack view-enter" style="padding-top:12px">
-    <img class="logo" src="icon.svg" alt="" width="64" height="64">
-    <div><h1 class="h1">Welcome to Tally</h1><p class="muted" style="margin:6px 0 0">A few details so your numbers make sense. You can change these later in your profile.</p></div>
-    <form class="card card-pad stack" data-form="setup" novalidate>
-      ${profileFields(f)}
-      <button type="submit" class="btn" ${f.saving ? 'disabled aria-busy="true"' : ''}>${f.saving ? 'Saving…' : 'Continue'}</button>
-    </form></section>`;
-}
-
-/** Shared by Setup and Profile. @param {any} f */
 function profileFields(f) {
-  const err = (k) => `<p class="error" id="err-${k}">${esc(f.errors[k] ?? '')}</p>`;
-  const inv = (k) => (f.errors[k] ? 'aria-invalid="true"' : '');
-  const segBtn = (field, value, label) => `<button type="button" data-action="form-seg" data-field="${field}" data-value="${value}" aria-pressed="${f[field] === value}">${label}</button>`;
+  const err = (/** @type {string} */ k) => `<p class="error" id="err-${k}">${esc(f.errors[k] ?? '')}</p>`;
+  const inv = (/** @type {string} */ k) => (f.errors[k] ? 'aria-invalid="true"' : '');
+  const segBtn = (/** @type {string} */ field, /** @type {string} */ value, /** @type {string} */ label) => `<button type="button" data-action="form-seg" data-field="${field}" data-value="${value}" aria-pressed="${f[field] === value}">${label}</button>`;
   return `
     <label class="field"><span>Your name</span>
       <input class="input" name="name" autocomplete="given-name" maxlength="40" value="${esc(f.name)}" ${inv('name')} aria-describedby="err-name" required></label>${err('name')}
@@ -155,26 +162,18 @@ function profileFields(f) {
       <input class="input" type="date" name="payAnchor" value="${esc(f.payAnchor)}" ${inv('payAnchor')} aria-describedby="err-payAnchor"></label>${err('payAnchor')}` : ''}`;
 }
 
-// ---------- main screens ----------
-
-/** @param {ViewState} s */
-const visibleBills = (s) => s.bills.filter((x) => !x.deleted && (x.by === s.me || x.scope === 'shared'));
-
-/** Debts I can see, each with what is left and its status. @param {ViewState} s */
-function debtRows(s) {
-  return visibleDebts(s.debts, s.me).map((debt) => {
-    const left = balanceLeft(debt, s.entries, s.rate.rate);
-    return { debt, left, leftShown: convert(left, debt.currency, display(s), s.rate.rate), status: debtStatus(debt, s.entries, s.today, s.rate.rate) };
-  });
+/** @param {{name:string, homeCurrency:string, budgetText:string, payFrequency:string, payAnchor:string, errors: Record<string,string>, saving:boolean}} f */
+export function setupView(f) {
+  return `<section class="stack view-enter" style="padding-top:12px">
+    <img class="logo" src="icon.svg" alt="" width="64" height="64">
+    <div><h1 class="title">Welcome to Tally</h1><p class="muted" style="margin:6px 0 0">A few details so your numbers make sense. You can change these later in your profile.</p></div>
+    <form class="panel panel-pad stack" data-form="setup" novalidate>
+      ${profileFields(f)}
+      <button type="submit" class="btn" ${f.saving ? 'disabled aria-busy="true"' : ''}>${f.saving ? 'Saving…' : 'Continue'}</button>
+    </form></section>`;
 }
 
-/** @param {ViewState} s @param {number} minor @param {Currency} currency */
-const shown = (s, minor, currency) => money(s, convert(minor, currency, display(s), s.rate.rate));
-
-/** @param {string} iso */
-const weekdayDay = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
-
-const DEBT_TILE = { card: ['', 'Debt'], loan: ['', 'loan'], person: ['teal', 'shared'] };
+// ---------- Home ----------
 
 /**
  * Bills and debts due in the next 14 days, soonest first.
@@ -193,7 +192,7 @@ function dueSoon(s) {
   return items.sort((a, b) => a.days - b.days || a.name.localeCompare(b.name));
 }
 
-/** The next 14 days with due dates and payday marked by shape as well as colour. @param {ViewState} s @param {{date:string}[]} items */
+/** Next 14 days: due dates and payday, marked by shape as well as colour. @param {ViewState} s @param {{date:string}[]} items */
 function dayStrip(s, items) {
   const due = new Set(items.map((i) => i.date));
   const payday = nextPayday(s.profile.payFrequency, s.profile.payAnchor, s.today);
@@ -204,7 +203,7 @@ function dayStrip(s, items) {
     const n = Number(date.slice(8));
     if (i === 0) { parts.push(`<span class="day today"><b>${n}</b></span>`); continue; }
     if (date === payday) { parts.push(`<span class="day pay">${n}${icon('check', { size: 11, stroke: 3.4 })}</span>`); said.push(`payday ${shortDate(date)}`); continue; }
-    if (due.has(date)) { parts.push(`<span class="day due">${n}<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.6" y="1.6" width="6.8" height="6.8" transform="rotate(45 5 5)" fill="#B45309"/></svg></span>`); said.push(`due ${shortDate(date)}`); continue; }
+    if (due.has(date)) { parts.push(`<span class="day due">${n}<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.6" y="1.6" width="6.8" height="6.8" transform="rotate(45 5 5)" fill="#92510A"/></svg></span>`); said.push(`due ${shortDate(date)}`); continue; }
     parts.push(`<span class="day">${n}</span>`);
   }
   return `<div class="days" role="img" aria-label="Next two weeks: ${esc(said.join(', ') || 'nothing due')}">${parts.join('')}</div>`;
@@ -219,8 +218,7 @@ export function homeView(s) {
   const monthName = monthLabel(month).split(' ')[0];
   const b = budgetView({ entries: all, me: s.me, budget: s.profile.monthlyBudget, budgetCurrency: s.profile.homeCurrency, display: disp, rate, today: s.today });
   const name = firstName(s.profile.name, s.me);
-
-  // Where this month's money went: my income against my debt payments, bills and other spending.
+  // This month: my income against my debt payments, bills and other spending.
   const monthEntries = inMonth(all, month);
   const income = total(monthEntries.filter((e) => e.by === s.me), disp, rate, 'income');
   const debtPaid = Math.round(debtPaidTotal(monthEntries.filter((e) => e.by === s.me), disp, rate));
@@ -232,62 +230,58 @@ export function homeView(s) {
   }
   bills = Math.round(bills);
   spent = Math.round(spent);
-  const out = debtPaid + bills + spent;
+  // Unpaid bills due this month, and overdue ones, are already committed. A paid bill
+  // shows up through its expense, so it is never counted twice.
+  const unpaid = sortBills(visibleBills(s), s.today).filter(({ bill, status }) => status.kind !== 'paid' && (status.kind === 'overdue' || monthOf(status.dueDate) === month));
+  const reserved = Math.round(unpaid.reduce((sum, { bill }) => sum + convert(bill.amount, bill.currency, disp, rate) * (bill.scope === 'shared' ? SHARED_SPLIT : 1), 0));
+  const out = debtPaid + bills + spent + reserved;
   const left = income - out;
-  const scale = Math.max(income, out, 1);
-  const pct = (/** @type {number} */ v) => `${Math.max(0, (v / scale) * 100).toFixed(1)}%`;
-  const seg = [[debtPaid, '#FFFFFF', 'Debts'], [bills, '#FFB27A', 'Bills'], [spent, '#B9B6FF', 'Spent']].filter(([v]) => Number(v) > 0);
-  const legend = [['Debts', debtPaid], ['Bills', bills], ['Spent', spent], ...(income > 0 ? [[left < 0 ? 'Over' : 'Left', Math.abs(left)]] : [])];
-  const bar = out > 0 || income > 0 ? `<div class="hbar" role="img" aria-label="${esc(legend.map(([k, v]) => `${k} ${money(s, Number(v), { compact: true })}`).join(', '))}">
-      ${seg.map(([v, c]) => `<span style="width:${pct(Number(v))};background:${c}"></span>`).join('')}${income > 0 && left > 0 ? `<span class="left" style="width:${pct(left)}"></span>` : ''}</div>
-    <div class="hlegend">${legend.map(([k, v]) => `<div>${k}<b>${esc(money(s, Number(v), { compact: true }).replace(/^[$₹]/, ''))}</b></div>`).join('')}</div>` : '';
 
-  const heroLabel = income > 0 ? (left < 0 ? `Spent more than came in for ${monthName}` : `Left for ${monthName}`) : `Out in ${monthName} so far`;
+  const heroLabel = income > 0 ? (left < 0 ? `Over for ${monthName}` : `Left for ${monthName}`) : `Out in ${monthName} so far`;
   const heroBody = income > 0
-    ? `<div class="num hero-amount">${esc(money(s, Math.abs(left)))}</div><div class="soft small">of ${esc(money(s, income))} income this month</div>`
-    : `<div class="num hero-amount">${esc(money(s, out))}</div><div class="soft small">Add your pay with + to see what’s left.</div>`;
+    ? `<div class="hero-amount">${esc(money(s, Math.abs(left)))}</div><div class="small">of ${esc(money(s, income))} income${reserved ? ` · ${esc(money(s, reserved))} of bills still to pay` : ''}</div>`
+    : `<div class="hero-amount">${esc(money(s, out))}</div><div class="small">Add your pay with + to see what’s left.</div>`;
   const heroFoot = b.hasBudget
-    ? `<div class="hero-foot"><span class="soft" style="font-weight:600">${b.safeToday < 0 ? 'Over today’s amount by' : 'Safe to spend today'}</span>
-        <span><span class="num" style="font-size:17px">${esc(money(s, Math.abs(b.safeToday)))}</span><span class="soft" style="font-weight:600">&#160;&#160;${esc(money(s, b.spentToday, { compact: true }))} spent</span></span></div>`
-    : `<div class="hero-foot"><span class="soft">Set a budget to see what’s safe to spend each day.</span>
-        <button type="button" class="btn2" data-action="go" data-route="profile" style="min-height:44px">Set budget</button></div>`;
+    ? `<div class="hero-foot"><span>${b.safeToday < 0 ? 'Over today’s amount by' : 'Safe to spend today'}</span>
+        <strong>${esc(money(s, Math.abs(b.safeToday)))}</strong></div>`
+    : `<div class="hero-foot"><span>Set a budget to see what’s safe to spend each day.</span>
+        <button type="button" class="btn-soft" data-action="go" data-route="profile">Set budget</button></div>`;
   const hero = `<section class="hero" aria-label="This month">
-      <div class="spread"><span class="soft small" style="font-weight:600">${esc(heroLabel)}</span>${currencyToggle(s)}</div>${heroBody}${bar}${heroFoot}</section>`;
-
-  const install = s.showInstall ? `<section class="tint" aria-label="Install Tally"><div class="spread" style="align-items:flex-start">
-      <div><div class="row-title" style="color:var(--brand)">Add Tally to your Home Screen</div><p class="small" style="margin:4px 0 0">${esc(s.installHint)}</p></div>
-      <button type="button" class="icon-btn" data-action="dismiss-install" aria-label="Dismiss">${icon('close')}</button></div></section>` : '';
+      <div class="spread"><span class="small" style="font-weight:600">${esc(heroLabel)}</span>${currencyToggle(s)}</div>${heroBody}${heroFoot}</section>`;
 
   const items = dueSoon(s);
-  const firstDebt = items.find((i) => i.kind === 'debt');
   const dueTotal = items.reduce((sum, i) => sum + i.amount, 0);
   const dueRows = items.map((i) => `<div class="row">
-      <span class="row-main"><span class="tile ${i.kind === 'bill' ? 'amber' : ''}" aria-hidden="true">${icon(i.kind === 'bill' ? 'Bills' : 'Debt')}</span>
-        <span style="min-width:0"><span class="row-title ellipsis" style="display:block">${esc(i.name)}</span>
-        <span class="row-meta ${i.overdue ? 'neg' : ''}" style="display:block;${i.overdue ? 'font-weight:700' : ''}">${i.overdue ? `Overdue since ${esc(shortDate(i.date))}` : esc(weekdayDay(i.date))}${i.amount ? ` · ${esc(money(s, i.amount))}` : ''}</span></span></span>
+      <span class="row-main"><span class="tile ${i.kind === 'bill' ? 'warn' : ''}" aria-hidden="true">${icon(i.kind === 'bill' ? 'Bills' : 'Debt')}</span>
+        <span class="row-body"><span class="row-title ellipsis">${esc(i.name)}</span>
+        <span class="row-meta ${i.overdue ? 'neg' : ''}" style="${i.overdue ? 'font-weight:700' : ''}">${i.overdue ? `Overdue since ${esc(shortDate(i.date))}` : esc(weekdayDay(i.date))}${i.amount ? ` · ${esc(money(s, i.amount))}` : ''}</span></span></span>
       ${i.kind === 'debt'
-        ? `<button type="button" class="pill-btn ${i === firstDebt ? 'primary' : ''}" data-action="pay-debt" data-id="${esc(i.id)}" aria-label="Pay ${esc(i.name)}">Pay</button>`
-        : `<button type="button" class="pill-btn" data-action="bill-paid" data-id="${esc(i.id)}" aria-label="Mark paid: ${esc(i.name)}">Mark paid</button>`}</div>`).join('');
-  const dueCard = `<section class="grp" aria-labelledby="due-h"><div class="gh"><h2 class="h2" id="due-h">Due soon</h2>${items.length ? `<span class="aside">${esc(money(s, dueTotal))} in 2 weeks</span>` : ''}</div>
-      <div class="card list">${dayStrip(s, items)}${items.length ? `<div style="border-top:1px solid var(--line)">${dueRows}</div>` : `<p class="muted small" style="margin:0;padding:0 16px 14px">Nothing due in the next two weeks.</p>`}</div></section>`;
+        ? `<button type="button" class="btn-soft solid" data-action="pay-debt" data-id="${esc(i.id)}" aria-label="Pay ${esc(i.name)}">Pay</button>`
+        : `<button type="button" class="btn-soft" data-action="bill-paid" data-id="${esc(i.id)}" aria-label="Mark paid: ${esc(i.name)}">Mark paid</button>`}</div>`).join('');
+  const dueCard = `<section class="section" aria-labelledby="due-h"><div class="section-head"><h2 class="h2" id="due-h">Due soon</h2>${items.length ? `<span class="aside">${esc(money(s, dueTotal))} in 2 weeks</span>` : ''}</div>
+      <div class="list">${dayStrip(s, items)}${items.length ? dueRows : `<p class="muted small" style="margin:0;padding:14px 16px">Nothing due in the next two weeks.</p>`}</div></section>`;
 
   const rows = debtRows(s).filter((r) => r.left > 0).sort((a, b2) => b2.leftShown - a.leftShown);
   const totals = debtTotals(visibleDebts(s.debts, s.me), s.entries, disp, rate, month);
   const maxLeft = rows[0]?.leftShown || 1;
-  const debtCard = `<section class="grp" aria-labelledby="debt-h"><div class="gh"><h2 class="h2" id="debt-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totals.left))} left</span>` : ''}</div>
-      ${rows.length ? `<div class="card card-pad"><div class="debt-bars">${rows.slice(0, 5).map((r) => `<span class="name ellipsis">${esc(r.debt.name)}</span>
+  const debtCard = `<section class="section" aria-labelledby="debt-h"><div class="section-head"><h2 class="h2" id="debt-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totals.left))} left</span>` : ''}</div>
+      ${rows.length ? `<div class="panel"><div class="debt-bars">${rows.slice(0, 5).map((r) => `<span class="name ellipsis">${esc(r.debt.name)}</span>
           <span class="track" role="img" aria-label="${esc(r.debt.name)} ${esc(money(s, r.leftShown))} left"><span style="width:${Math.max(3, Math.round((r.leftShown / maxLeft) * 100))}%"></span></span>
           <span class="num" style="text-align:right">${esc(money(s, r.leftShown, { compact: true }))}</span>`).join('')}</div>
-        <div class="spread" style="margin-top:12px;padding-top:4px;border-top:1px solid var(--line)"><span class="muted small">Paid this month <strong class="num pos">${esc(money(s, totals.paid))}</strong></span>
+        <div class="spread" style="padding:0 18px 14px"><span class="muted small">Paid this month <strong class="num pos">${esc(money(s, totals.paid))}</strong></span>
           <button type="button" class="link" data-action="go" data-route="plan">All debts${rows.length > 5 ? ` (${rows.length})` : ''}</button></div></div>`
-      : `<div class="card card-pad"><p class="muted small" style="margin:0 0 10px">Track a credit card, a loan or money you owe someone. Log payments and watch the balance fall.</p>
-          <button type="button" class="btn2" data-action="new-debt">Add a debt</button></div>`}</section>`;
+      : `<div class="panel panel-pad stack" style="gap:12px"><p class="muted small" style="margin:0">Track a credit card, a loan or money you owe someone. Log payments and watch the balance fall.</p>
+          <button type="button" class="btn-soft" data-action="new-debt" style="align-self:flex-start">Add a debt</button></div>`}</section>`;
 
-  return `<div class="stack home view-enter">
-    <header class="spread"><div class="ellipsis"><div class="eyebrow">${esc(longDate(s.today))}</div><h1 class="h1 ellipsis">${esc(greeting(s.hour))}, ${esc(name)}</h1></div>
+  return `<div class="view view-enter home">
+    <header class="spread"><div class="ellipsis"><div class="eyebrow">${esc(longDate(s.today))}</div><h1 class="title ellipsis">${esc(greeting(s.hour))}, ${esc(name)}</h1></div>
       <button type="button" class="avatar" data-action="go" data-route="profile" aria-label="Profile and settings">${esc(initial(s.profile.name, s.me))}</button></header>
-    ${hero}${install}${dueCard}${debtCard}</div>`;
+    ${hero}${dueCard}${debtCard}</div>`;
 }
+
+// ---------- Plan ----------
+
+const DEBT_TILE = { card: 'card', loan: 'loan', person: 'person' };
 
 /** @param {ViewState} s */
 export function planView(s) {
@@ -298,22 +292,23 @@ export function planView(s) {
   const { d: dayOfMonth } = parseIso(s.today);
   const monthDays = daysInMonth(Number(s.today.slice(0, 4)), Number(s.today.slice(5, 7)));
 
-  const paydayTile = `<button type="button" class="card" style="text-align:left;border:0" data-action="go" data-route="profile">
-      <div class="muted small" style="font-weight:600">Next payday</div>
-      ${payday ? `<div class="big">${esc(weekdayDay(payday))}</div><div class="muted small">${(() => { const d = daysBetween(s.today, payday); return d === 0 ? 'Today' : `in ${d} day${d === 1 ? '' : 's'}`; })()}</div>` : '<div class="big" style="font-size:17px">Not set</div><div class="muted small">Tap to add</div>'}</button>`;
+  const paydayTile = `<button type="button" class="tile-card" data-action="go" data-route="profile">
+      <span class="muted small" style="font-weight:600">Next payday</span>
+      ${payday ? `<span class="big">${esc(weekdayDay(payday))}</span><span class="muted small">${(() => { const d = daysBetween(s.today, payday); return d === 0 ? 'Today' : `in ${d} day${d === 1 ? '' : 's'}`; })()}</span>` : '<span class="big" style="font-size:17px">Not set</span><span class="muted small">Tap to add</span>'}</button>`;
   const used = b.hasBudget ? Math.min(100, Math.round((b.spentMonth / b.budget) * 100)) : 0;
   const paceAt = Math.round((dayOfMonth / monthDays) * 100);
-  const budgetTile = `<button type="button" class="card" style="text-align:left;border:0" data-action="go" data-route="profile">
-      <div class="muted small" style="font-weight:600">Monthly budget</div>
-      ${b.hasBudget ? `<div class="big">${esc(money(s, b.spentMonth, { compact: true }))}<span class="muted small" style="font-weight:600"> / ${esc(money(s, b.budget, { compact: true }).replace(/^[$₹]/, ''))}</span></div>
-        <div class="pace" role="img" aria-label="${used} percent spent, ${paceAt} percent of the month gone"><span style="width:${used}%;background:${b.status === 'over' ? 'var(--neg)' : b.status === 'ahead' ? 'var(--amber)' : 'var(--pos)'}"></span><i style="left:${paceAt}%"></i></div>
-        <div class="muted small" style="margin-top:6px">${b.status === 'over' ? 'Over budget' : b.status === 'ahead' ? 'Running ahead' : 'On pace'}</div>` : '<div class="big" style="font-size:17px">Not set</div><div class="muted small">Tap to add</div>'}</button>`;
+  const paceClass = b.status === 'over' ? 'over' : b.status === 'ahead' ? 'ahead' : '';
+  const budgetTile = `<button type="button" class="tile-card" data-action="go" data-route="profile">
+      <span class="muted small" style="font-weight:600">Monthly budget</span>
+      ${b.hasBudget ? `<span class="big">${esc(money(s, b.spentMonth, { compact: true }))}<span class="muted small" style="font-weight:600"> / ${esc(money(s, b.budget, { compact: true }).replace(/^[$₹]/, ''))}</span></span>
+        <span class="pace ${paceClass}" role="img" aria-label="${used} percent spent, ${paceAt} percent of the month gone"><span style="width:${used}%"></span><i style="left:${paceAt}%"></i></span>
+        <span class="muted small" style="margin-top:4px">${b.status === 'over' ? 'Over budget' : b.status === 'ahead' ? 'Running ahead' : 'On pace'}</span>` : '<span class="big" style="font-size:17px">Not set</span><span class="muted small">Tap to add</span>'}</button>`;
 
-  const rows = debtRows(s).sort((a, c) => ({ overdue: 0, today: 1, soon: 2, upcoming: 3, paid: 4, nodate: 5, cleared: 6 }[a.status.kind] - { overdue: 0, today: 1, soon: 2, upcoming: 3, paid: 4, nodate: 5, cleared: 6 }[c.status.kind]) || a.status.days - c.status.days);
+  const order = { overdue: 0, today: 1, soon: 2, upcoming: 3, paid: 4, nodate: 5, cleared: 6 };
+  const rows = debtRows(s).sort((a, c) => (order[a.status.kind] - order[c.status.kind]) || a.status.days - c.status.days);
   const primaryId = rows.find((r) => ['overdue', 'today', 'soon', 'upcoming'].includes(r.status.kind))?.debt.id;
   const totalLeft = rows.reduce((sum, r) => sum + r.leftShown, 0);
   const debtList = rows.map(({ debt, left, leftShown, status }) => {
-    const [tone, ic] = DEBT_TILE[debt.type];
     const est = estimate(left, debt.apr, debt.minimum);
     const when = status.kind === 'nodate' ? 'No fixed date' : status.kind === 'cleared' ? 'Paid off' : status.kind === 'paid' ? `Next ${weekdayDay(status.dueDate)}` : weekdayDay(status.dueDate);
     const meta = [when, debt.minimum ? `min ${shown(s, debt.minimum, debt.currency)}` : '', debt.currency !== disp ? formatMoney(left, debt.currency, { compact: true }) : ''].filter(Boolean).join(' · ');
@@ -324,12 +319,12 @@ export function planView(s) {
     const paidOff = debt.balance > 0 ? Math.round(((debt.balance - left) / debt.balance) * 100) : 0;
     return `<div class="row">
       <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-debt" data-id="${esc(debt.id)}">
-        <span class="tile ${tone}" aria-hidden="true">${icon(ic)}</span>
-        <span style="min-width:0;flex:1"><span class="spread"><span class="row-title ellipsis">${esc(debt.name)}</span><span class="row-amt">${esc(money(s, leftShown))}</span></span>
-          <span class="row-meta wrap-meta" style="display:block">${esc(meta)}${debt.by !== s.me ? ` · ${esc(personName(s, debt.by))}’s` : ''}</span>
+        <span class="tile ${DEBT_TILE[debt.type] === 'person' ? 'ok' : ''}" aria-hidden="true">${icon(debt.type === 'loan' ? 'loan' : debt.type === 'person' ? 'shared' : 'card')}</span>
+        <span class="row-body"><span class="spread"><span class="row-title ellipsis">${esc(debt.name)}</span><span class="row-amt">${esc(money(s, leftShown))}</span></span>
+          <span class="row-meta wrap">${esc(meta)}${debt.by !== s.me ? ` · ${esc(personName(s, debt.by))}’s` : ''}</span>
           ${flags.map(([c, i, t]) => `<span class="flag ${c}">${icon(i, { size: 14, stroke: 2.6 })}${esc(t)}</span>`).join('')}
-          ${!flags.length && paidOff > 0 ? `<span class="bar" style="display:block;margin-top:7px;height:6px" role="img" aria-label="${paidOff} percent paid off"><span style="width:${paidOff}%;background:var(--pos)"></span></span>` : ''}</span></button>
-      ${status.kind === 'cleared' ? '' : `<button type="button" class="pill-btn ${debt.id === primaryId ? 'primary' : ''}" data-action="pay-debt" data-id="${esc(debt.id)}" aria-label="Pay ${esc(debt.name)}">Pay</button>`}</div>`;
+          ${!flags.length && paidOff > 0 ? `<span class="bar inline" role="img" aria-label="${paidOff} percent paid off"><span style="width:${paidOff}%;background:var(--pos)"></span></span>` : ''}</span></button>
+      ${status.kind === 'cleared' ? '' : `<button type="button" class="btn-soft ${debt.id === primaryId ? 'solid' : ''}" data-action="pay-debt" data-id="${esc(debt.id)}" aria-label="Pay ${esc(debt.name)}">Pay</button>`}</div>`;
   }).join('');
 
   const billRows = sorted.map(({ bill, status }) => {
@@ -338,25 +333,27 @@ export function planView(s) {
     const tone = status.kind === 'overdue' ? 'neg' : paid ? 'pos' : status.kind === 'soon' || status.kind === 'today' ? 'warn' : '';
     return `<div class="row">
       <button type="button" class="row-main" style="background:none;border:0;padding:0;text-align:left;min-height:44px" data-action="open-bill" data-id="${esc(bill.id)}">
-        <span class="tile amber" aria-hidden="true">${icon('Bills')}</span>
-        <span style="min-width:0;flex:1"><span class="spread"><span class="row-title ellipsis">${esc(bill.name)}</span><span class="row-amt">${esc(shown(s, bill.amount, bill.currency))}</span></span>
-          <span class="row-meta wrap-meta" style="display:block">${esc(meta)}</span>
+        <span class="tile warn" aria-hidden="true">${icon('Bills')}</span>
+        <span class="row-body"><span class="spread"><span class="row-title ellipsis">${esc(bill.name)}</span><span class="row-amt">${esc(shown(s, bill.amount, bill.currency))}</span></span>
+          <span class="row-meta wrap">${esc(meta)}</span>
           ${tone ? `<span class="flag ${tone}">${icon(paid ? 'check' : 'alert', { size: 14, stroke: 2.6 })}${esc(status.label)}</span>` : ''}</span></button>
-      <button type="button" class="pill-btn" data-action="bill-paid" data-id="${esc(bill.id)}" aria-pressed="${paid}" aria-label="${paid ? `Paid: ${esc(bill.name)}. Tap to undo` : `Mark paid: ${esc(bill.name)}`}">${paid ? 'Paid' : 'Mark paid'}</button></div>`;
+      <button type="button" class="btn-soft ${paid ? 'done' : ''}" data-action="bill-paid" data-id="${esc(bill.id)}" aria-pressed="${paid}" aria-label="${paid ? `Paid: ${esc(bill.name)}. Tap to undo` : `Mark paid: ${esc(bill.name)}`}">${paid ? 'Paid' : 'Mark paid'}</button></div>`;
   }).join('');
   const billsMonthly = sorted.reduce((sum, { bill }) => sum + convert(bill.amount, bill.currency, disp, s.rate.rate), 0);
 
-  return `<div class="stack plan view-enter">
-    <header><div class="eyebrow">${esc(monthLabel(monthOf(s.today)))}</div><h1 class="h1">Plan</h1></header>
+  return `<div class="view view-enter plan">
+    <header><div class="eyebrow">${esc(monthLabel(monthOf(s.today)))}</div><h1 class="title">Plan</h1></header>
     <div class="tiles">${paydayTile}${budgetTile}</div>
-    <section class="grp" aria-labelledby="debts-h"><div class="gh"><h2 class="h2" id="debts-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totalLeft))} left</span>` : ''}</div>
-      <div class="card list">${debtList}
-        <button type="button" class="row add-row" data-action="new-debt"><span class="row-main"><span class="tile soft" aria-hidden="true">${icon('plus')}</span>Add a debt</span></button></div></section>
-    <section class="grp" aria-labelledby="bills-h"><div class="gh"><h2 class="h2" id="bills-h">Monthly bills</h2>${sorted.length ? `<span class="aside">${esc(money(s, billsMonthly))} a month</span>` : ''}</div>
-      <div class="card list">${billRows || `<p class="muted small" style="margin:0;padding:14px 16px 4px">Add rent, phone, insurance or subscriptions and Tally will remind you before they’re due.</p>`}
-        <button type="button" class="row add-row" data-action="new-bill"><span class="row-main"><span class="tile soft" aria-hidden="true">${icon('plus')}</span>Add a bill</span></button></div></section>
+    <section class="section" aria-labelledby="debts-h"><div class="section-head"><h2 class="h2" id="debts-h">Debts</h2>${rows.length ? `<span class="aside">${esc(money(s, totalLeft))} left</span>` : ''}</div>
+      <div class="list">${debtList}
+        <button type="button" class="row row-add" data-action="new-debt"><span class="row-main"><span class="tile plain" aria-hidden="true">${icon('plus')}</span>Add a debt</span></button></div></section>
+    <section class="section" aria-labelledby="bills-h"><div class="section-head"><h2 class="h2" id="bills-h">Monthly bills</h2>${sorted.length ? `<span class="aside">${esc(money(s, billsMonthly))} a month</span>` : ''}</div>
+      <div class="list">${billRows || `<p class="muted small" style="margin:0;padding:14px 16px 4px">Add rent, phone, insurance or subscriptions and Tally will remind you before they’re due.</p>`}
+        <button type="button" class="row row-add" data-action="new-bill"><span class="row-main"><span class="tile plain" aria-hidden="true">${icon('plus')}</span>Add a bill</span></button></div></section>
   </div>`;
 }
+
+// ---------- Activity and Shared ----------
 
 /** @param {string} title @param {string} month @param {string} min @param {string} max @param {string} action */
 function monthNav(title, month, min, max, action) {
@@ -365,11 +362,29 @@ function monthNav(title, month, min, max, action) {
     <button type="button" class="icon-btn" data-action="${action}" data-delta="1" aria-label="Next month" ${month >= max ? 'disabled' : ''}>${icon('next')}</button></div>`;
 }
 
+/** Sum for the active Activity filter: debt payments, income, or spending. @param {ViewState} s @param {Entry[]} list @param {string} filter */
+function sumFor(s, list, filter) {
+  if (filter === 'debts') return debtPaidTotal(list, display(s), s.rate.rate);
+  if (filter === 'income') return total(list, display(s), s.rate.rate, 'income');
+  return total(list, display(s), s.rate.rate);
+}
+
+/**
+ * Text for an Activity total. Spending shows a minus, income a plus, debt payments none (they are not spending).
+ * @param {ViewState} s @param {number} value @param {string} filter
+ */
+function totalText(s, value, filter) {
+  const sign = filter === 'debts' ? 'none' : filter === 'income' ? 'income' : 'expense';
+  return money(s, value, { sign });
+}
+
 /** Month bounds for navigation. @param {ViewState} s */
 export function monthBounds(s) {
   const months = active(s.entries).map((e) => monthOf(e.date));
   const current = monthOf(s.today);
-  const min = months.reduce((a, m) => (m < a ? m : a), current);
+  const earliest = months.reduce((a, m) => (m < a ? m : a), current);
+  // With entries from earlier months, stop at the oldest. Otherwise let people look back a year.
+  const min = earliest < current ? earliest : shiftMonth(current, -11);
   const max = months.reduce((a, m) => (m > a ? m : a), current);
   return { min, max };
 }
@@ -383,34 +398,36 @@ export function activityView(s) {
   const chips = [['all', 'All'], ['personal', 'Personal'], ['shared', 'Shared'], ['debts', 'Debts'], ['income', 'Income']]
     .map(([v, l]) => `<button type="button" class="chip" data-action="filter" data-filter="${v}" aria-pressed="${filter === v}">${l}</button>`).join('');
   const emptyText = { all: 'No entries this month.', personal: 'No personal spending this month.', shared: 'No shared costs this month.', income: 'No income recorded this month.', debts: 'No debt payments this month.' }[filter];
-  const spent = filter === 'debts' ? debtPaidTotal(list, display(s), s.rate.rate) : total(list, display(s), s.rate.rate);
+  const headline = sumFor(s, list, filter);
   const trend = filter === 'debts' ? debtTrend(s, month) : '';
-  return `<div class="stack view-enter">
-    <header class="spread"><h1 class="h1">Activity</h1><span class="muted small num" aria-label="Spent in this view">${list.length ? esc(money(s, spent, { sign: spent ? 'expense' : 'none' })) : ''}</span></header>
+  return `<div class="view view-enter activity">
+    <header class="spread"><h1 class="title">Activity</h1><span class="muted small num" aria-label="${filter === 'income' ? 'Income in this view' : filter === 'debts' ? 'Paid towards debts in this view' : 'Spent in this view'}">${list.length ? esc(totalText(s, headline, filter)) : ''}</span></header>
     ${monthNav(monthLabel(month), month, min, max, 'activity-month')}
     <div class="chips scroll" role="group" aria-label="Filter">${chips}</div>
     ${trend}
     ${groups.length ? groups.map((g) => {
-      const dayTotal = filter === 'debts' ? debtPaidTotal(g.entries, display(s), s.rate.rate) : total(g.entries, display(s), s.rate.rate);
-      return `<section class="card" aria-label="${esc(dayLabel(g.date, s.today))}"><div class="card-head"><h2 class="h2" style="font-size:15px">${esc(dayLabel(g.date, s.today))}</h2>
-        <span class="muted num small">${dayTotal ? esc(money(s, dayTotal, { sign: 'expense' })) : ''}</span></div>${g.entries.map((e) => entryRow(s, e)).join('')}</section>`;
-    }).join('') : `<section class="card">${empty(emptyText, 'Tap <strong>+</strong> to add one.')}</section>`}
+      const dayTotal = sumFor(s, g.entries, filter);
+      // A day with one entry would repeat its amount on the row, so the header total only shows when it adds something.
+      const showTotal = g.entries.length > 1 && dayTotal;
+      return `<section class="panel" aria-label="${esc(dayLabel(g.date, s.today))}"><div class="panel-head"><h2 class="h2">${esc(dayLabel(g.date, s.today))}</h2>
+        <span class="muted num small">${showTotal ? esc(totalText(s, dayTotal, filter)) : ''}</span></div>${g.entries.map((e) => entryRow(s, e)).join('')}</section>`;
+    }).join('') : `<section class="panel">${empty(emptyText, 'Tap <strong>+</strong> to add one.')}</section>`}
   </div>`;
 }
 
-/** Debt paid in the four months ending at `month`, as labelled bars. @param {ViewState} s @param {string} month */
+/** Debt paid over the four months ending at `month`. @param {ViewState} s @param {string} month */
 function debtTrend(s, month) {
   const all = active(s.entries);
   const months = [-3, -2, -1, 0].map((k) => shiftMonth(month, k));
   const sums = months.map((m) => Math.round(debtPaidTotal(inMonth(all, m), display(s), s.rate.rate)));
   const max = Math.max(1, ...sums);
   const name = (/** @type {string} */ m) => monthLabel(m).split(' ')[0].slice(0, 3);
-  return `<section class="card card-pad" aria-label="Paid towards debts">
+  return `<section class="panel panel-pad" aria-label="Paid towards debts">
     <div class="spread" style="align-items:baseline"><div><div class="muted small" style="font-weight:600">Paid towards debts</div><div class="num" style="font-size:30px;line-height:1.15">${esc(money(s, sums[3]))}</div></div>
       <span class="muted small">Not counted as spending</span></div>
-    <div class="months" role="img" aria-label="${esc(months.map((m, i) => `${name(m)} ${money(s, sums[i], { compact: true })}`).join(', '))}">
+    <div class="trend" role="img" aria-label="${esc(months.map((m, i) => `${name(m)} ${money(s, sums[i], { compact: true })}`).join(', '))}">
       ${sums.map((v, i) => `<div class="${i === 3 ? 'now' : ''}"><span class="num">${esc(money(s, v, { compact: true }).replace(/^[$₹]/, ''))}</span><i style="height:${Math.round((v / max) * 80)}px"></i></div>`).join('')}</div>
-    <div class="months-x">${months.map((m, i) => `<span style="${i === 3 ? 'color:var(--brand);font-weight:800' : ''}">${name(m)}</span>`).join('')}</div></section>`;
+    <div class="trend-x">${months.map((m, i) => `<span style="${i === 3 ? 'color:var(--brand);font-weight:800' : ''}">${name(m)}</span>`).join('')}</div></section>`;
 }
 
 /** @param {ViewState} s */
@@ -429,20 +446,22 @@ export function sharedView(s) {
     sentence = `${from} ${to} ${money(s, settle.amount)}`;
   }
   const maxAmt = Math.max(1, ...people.map((p) => p.amount));
-  return `<div class="stack view-enter">
-    <header><h1 class="h1">Shared</h1><p class="muted small" style="margin:4px 0 0">Costs you split 50/50.</p></header>
+  return `<div class="view view-enter shared">
+    <header><h1 class="title">Shared</h1><p class="muted small" style="margin:4px 0 0">Costs you split 50/50.</p></header>
     ${monthNav(monthLabel(month), month, min, max, 'shared-month')}
-    <section class="card card-pad stack" aria-label="Shared totals">
+    <section class="panel panel-pad stack" aria-label="Shared totals" style="gap:18px">
       <div><div class="eyebrow">Total shared</div><div class="num" style="font-size:32px">${esc(money(s, sum))}</div></div>
-      ${people.map((p, i) => `<div><div class="spread small"><span style="display:flex;align-items:center;gap:8px;font-weight:700"><span class="dot" style="background:${PERSON_COLORS[i % PERSON_COLORS.length]}"></span>${esc(personName(s, p.email))} paid</span><span class="num">${esc(money(s, p.amount))}</span></div>
-        <div class="bar" style="margin-top:6px" aria-hidden="true"><span style="width:${p.amount ? Math.max(4, Math.round((p.amount / maxAmt) * 100)) : 0}%;background:${PERSON_COLORS[i % PERSON_COLORS.length]}"></span></div></div>`).join('')}
-      ${sentence ? `<div class="tag ${settle?.kind === 'square' ? 't-pos' : 't-neu'}" style="align-self:flex-start;font-size:13.5px;padding:8px 12px;white-space:normal">${esc(sentence)}</div>` : ''}
+      <div class="people">${people.map((p, i) => `<div class="person"><div class="spread"><span><span class="dot" style="background:${PERSON_COLORS[i % PERSON_COLORS.length]}"></span>${esc(personName(s, p.email))} paid</span><span class="num">${esc(money(s, p.amount))}</span></div>
+        <div class="bar" aria-hidden="true"><span style="width:${p.amount ? Math.max(4, Math.round((p.amount / maxAmt) * 100)) : 0}%;background:${PERSON_COLORS[i % PERSON_COLORS.length]}"></span></div></div>`).join('')}</div>
+      ${sentence ? `<div class="tag ${settle?.kind === 'square' ? 't-pos' : 't-neu'}" style="align-self:flex-start;font-size:14px;padding:8px 12px;white-space:normal">${esc(sentence)}</div>` : ''}
     </section>
-    <section class="card" aria-labelledby="sh-list"><div class="card-head"><h2 class="h2" id="sh-list">Shared costs</h2></div>
-      ${list.length ? list.map((e) => entryRow(s, e, { showDate: true })).join('') : empty('No shared costs yet', 'When you add an expense, choose <strong>Shared</strong> to split it.')}</section>
+    <section class="section" aria-labelledby="sh-list"><div class="section-head"><h2 class="h2" id="sh-list">Shared costs</h2></div>
+      <div class="list">${list.length ? list.map((e) => entryRow(s, e, { showDate: true })).join('') : empty('No shared costs yet', 'When you add an expense, choose <strong>Shared</strong> to split it.')}</div></section>
     <p class="muted small" style="margin:0;text-align:center">${icon('lock', { size: 14 })} Everyone in your household can see all entries.</p>
   </div>`;
 }
+
+// ---------- Profile ----------
 
 /**
  * Reminders on this phone. `push` is set by the app: status, whether a call is in flight, and whether iPhone needs the Home Screen first.
@@ -458,10 +477,10 @@ function remindersSection(push) {
     off: `<p class="muted small" style="margin:0">Get a heads-up 3 days before a bill or debt minimum is due, and on the day if it’s still unpaid.${homeHint}</p>
       <button type="button" class="btn" data-action="push-on" ${busy}>Turn on notifications</button>`,
     on: `<p class="muted small" style="margin:0">On for this phone. Reminders arrive around 8 am Toronto time.</p>
-      <button type="button" class="btn" data-action="push-test" ${busy}>Send a test notification</button>
-      <button type="button" class="btn-link" data-action="push-off" ${busy}>Turn off on this phone</button>`,
+      <button type="button" class="btn-soft" data-action="push-test" ${busy} style="align-self:flex-start">Send a test notification</button>
+      <button type="button" class="btn-text center" data-action="push-off" ${busy}>Turn off on this phone</button>`,
   };
-  return `<section class="card card-pad stack" aria-labelledby="rem-h"><h2 class="h2" id="rem-h">Reminders</h2>
+  return `<section class="panel panel-pad stack" aria-labelledby="rem-h"><h2 class="h2" id="rem-h">Reminders</h2>
     ${states[push.status]}
   </section>`;
 }
@@ -472,31 +491,29 @@ export function profileView(s, f) {
   const rateLine = r.source === 'fallback'
     ? `Using an approximate rate: 1 CAD ≈ ${r.rate.toFixed(2)} INR (couldn’t load today’s rate yet).`
     : `1 CAD = ${r.rate.toFixed(2)} INR · European Central Bank rate${r.date ? ` of ${shortDate(r.date)}` : ''}${r.source === 'saved' ? ' (saved)' : ''}.`;
-  return `<div class="stack view-enter">
-    <header class="spread"><button type="button" class="icon-btn" data-action="go" data-route="home" aria-label="Back to Home">${icon('back')}</button><h1 class="h1" style="flex:1">Profile</h1></header>
-    <section class="card card-pad" style="display:flex;align-items:center;gap:14px"><span class="avatar lg" aria-hidden="true">${esc(initial(s.profile.name, s.me))}</span>
+  return `<div class="view view-enter profile">
+    <header class="spread"><button type="button" class="icon-btn" data-action="go" data-route="home" aria-label="Back to Home">${icon('back')}</button><h1 class="title" style="flex:1">Profile</h1></header>
+    <section class="panel panel-pad" style="display:flex;align-items:center;gap:14px"><span class="avatar lg" aria-hidden="true">${esc(initial(s.profile.name, s.me))}</span>
       <div class="ellipsis"><div class="row-title ellipsis" style="font-size:18px">${esc(s.profile.name)}</div><div class="muted small ellipsis">${esc(s.me)}</div></div></section>
-    <section class="card card-pad stack" aria-labelledby="show-h"><div class="spread"><h2 class="h2" id="show-h">Show amounts in</h2>${currencyToggle(s, false)}</div>
+    <section class="panel panel-pad stack" aria-labelledby="show-h" style="gap:12px"><div class="spread"><h2 class="h2" id="show-h">Show amounts in</h2>${currencyToggle(s)}</div>
       <p class="muted small" style="margin:0">${esc(rateLine)}</p></section>
-    <form class="card card-pad stack" data-form="profile" novalidate aria-labelledby="det-h"><h2 class="h2" id="det-h">Your details</h2>
+    <form class="panel panel-pad stack" data-form="profile" novalidate aria-labelledby="det-h"><h2 class="h2" id="det-h">Your details</h2>
       ${profileFields(f)}
       <button type="submit" class="btn" ${f.saving ? 'disabled' : ''}>Save changes</button></form>
     ${remindersSection(s.push)}
-    <section class="card card-pad stack" aria-labelledby="inst-h"><h2 class="h2" id="inst-h">Install on your phone</h2>
+    <section class="panel panel-pad stack" aria-labelledby="inst-h"><h2 class="h2" id="inst-h">Install on your phone</h2>
       <p class="muted small" style="margin:0"><strong>iPhone:</strong> open in Safari, tap Share, then “Add to Home Screen”.<br><strong>Android:</strong> open in Chrome, tap ⋮, then “Install app” or “Add to Home screen”.</p></section>
-    <section class="card">
-      <button type="button" class="row" data-action="export"><span class="row-main"><span class="ico">${icon('share')}</span><span><span class="row-title" style="display:block">Export a backup (CSV)</span><span class="row-meta" style="display:block">All household entries, any time</span></span></span></button>
-      <button type="button" class="row" data-action="sign-out"><span class="row-main"><span class="ico">${icon('logout')}</span><span class="row-title">Sign out</span></span></button></section>
+    <section class="panel">
+      <button type="button" class="row" data-action="export"><span class="row-main"><span class="ico" aria-hidden="true">${icon('share')}</span><span class="row-body"><span class="row-title">Export a backup (CSV)</span><span class="row-meta">All household entries, any time</span></span></span></button>
+      <button type="button" class="row" data-action="sign-out"><span class="row-main"><span class="ico" aria-hidden="true">${icon('logout')}</span><span class="row-title">Sign out</span></span></button></section>
     <p class="muted small" style="margin:0;text-align:center">${icon('lock', { size: 14 })} Everyone in your household can see all entries. · Tally ${esc(s.version)}</p>
   </div>`;
 }
 
 /** Tab bar markup. @param {string} route */
 export function tabsView(route) {
-  const tab = (r, ic, label) => `<button type="button" class="tab" data-action="go" data-route="${r}" ${route === r ? 'aria-current="page"' : ''}>${icon(ic, { size: 22 })}${label}</button>`;
+  const tab = (/** @type {string} */ r, /** @type {string} */ ic, /** @type {string} */ label) => `<button type="button" class="tab" data-action="go" data-route="${r}" ${route === r ? 'aria-current="page"' : ''}>${icon(ic, { size: 22 })}${label}</button>`;
   return `${tab('home', 'home', 'Home')}${tab('activity', 'activity', 'Activity')}
     <button type="button" class="fab" data-action="new-entry" aria-label="Add an expense or income" aria-haspopup="dialog">${icon('plus', { size: 26, stroke: 2.6 })}</button>
     ${tab('shared', 'shared', 'Shared')}${tab('plan', 'plan', 'Plan')}`;
 }
-
-export { money as formatDisplayMoney };
