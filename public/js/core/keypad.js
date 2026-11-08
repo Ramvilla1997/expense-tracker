@@ -35,6 +35,25 @@ export function keyFromKeyboard(key) {
 }
 
 /**
+ * Cleans text typed into the native amount field: keeps digits and one decimal point
+ * (a comma counts as a point), applies the same limits as the keys, and says why a character was dropped.
+ * @param {string} raw
+ * @returns {{text: string, message: string}}
+ */
+export function cleanAmount(raw) {
+  let text = '';
+  let message = '';
+  for (const ch of raw) {
+    const key = keyFromKeyboard(ch);
+    if (!key || key === 'back') continue;
+    const next = applyKey(text, key);
+    if (next === text && !message) message = limitMessage(text, key);
+    text = next;
+  }
+  return { text, message };
+}
+
+/**
  * Why a refused key was refused, so the person is told instead of seeing nothing happen.
  * Returns '' when the key was not refused (or was a deletion).
  * @param {string} text

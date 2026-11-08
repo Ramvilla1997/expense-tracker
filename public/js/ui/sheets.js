@@ -49,16 +49,19 @@ export function amountDisplay(text) {
   return fraction === undefined ? grouped : `${grouped}.${fraction}`;
 }
 
-/** Shrinks big numbers so they fit narrow phones. @param {string} shown */
-export const fitClass = (shown) => (shown.length > 12 ? 'fit-2' : shown.length > 8 ? 'fit-1' : '');
+/** Shrinks long amounts so they stay on one line on narrow phones (INR grouping is long). @param {string} shown */
+export const fitClass = (shown) => (shown.length > 15 ? 'fit-3' : shown.length > 11 ? 'fit-2' : shown.length > 7 ? 'fit-1' : '');
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'back'];
-
-/** Keypad shared by the entry and payment sheets. */
-const keypad = () => `<div class="keypad" role="group" aria-label="Amount keypad">${KEYS.map((k) => `<button type="button" class="key" data-action="key" data-key="${k}" data-fkey="k${k}" ${k === 'back' ? 'aria-label="Delete last digit"' : ''}>${k === 'back' ? '⌫' : k}</button>`).join('')}</div>`;
+/**
+ * The amount field: the phone's own numeric keyboard, cleaned up as it is typed (see cleanAmount).
+ * @param {string} text @param {string} currency @param {string} [toggleAction] when set, the currency is a button that switches it
+ */
+const amountField = (text, currency, toggleAction) => `<div class="amount-line">
+      <input id="amount" class="amount-input ${fitClass(text)}" name="amount" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(text)}" aria-label="Amount in ${currency}" data-fkey="amount">
+      ${toggleAction ? `<button type="button" class="cur-switch" data-action="${toggleAction}" aria-label="Currency ${currency}. Tap to switch" data-fkey="cur">${currency} ⇄</button>` : `<span class="amount-cur">${currency}</span>`}</div>`;
 
 /** Says why Save is off, so a disabled button is never a mystery. @param {boolean} canSave @param {string} verb */
-const saveHint = (canSave, verb) => `<p class="sheet-note" id="save-hint" style="text-align:center" ${canSave ? 'hidden' : ''}>Type an amount to ${verb}.</p>`;
+const saveHint = (canSave, verb) => `<p class="sheet-note" id="save-hint" style="text-align:center;margin:0" ${canSave ? 'hidden' : ''}>Type an amount to ${verb}.</p>`;
 
 /**
  * Confirmation shown inside a sheet instead of its form. Null when nothing needs confirming.
@@ -89,23 +92,21 @@ const header = (title) => `<div class="grabber" aria-hidden="true"></div>
  * @param {string} today
  */
 function paySheet(d, today) {
-  const shown = amountDisplay(d.amountText);
   const canSave = Boolean(d.amountText) && Number(d.amountText) > 0;
   const confirm = confirmPanel(d, { deleteTitle: 'Delete this payment?', deleteAction: 'entry-delete-confirm' });
   const symbol = d.currency === 'CAD' ? '$' : '₹';
   const title = d.mode === 'edit' ? 'Edit payment' : `Pay ${esc(d.debtName)}`;
   return `${header(title)}
-    <div class="amount">
-      <output class="figure ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${symbol}${esc(shown)}</output>
+    <div class="amount">${amountField(d.amountText, d.currency)}
       <div class="sub" id="pay-after">${esc(d.after(d.amountText))}</div></div>
     ${d.presets.length ? `<div class="opts" role="group" aria-label="Choose amount">${d.presets.map((p, i) => `<button type="button" class="opt" data-action="pay-preset" data-value="${esc(p.amountText)}" aria-pressed="${d.amountText === p.amountText}" data-fkey="pre${i}"><span>${esc(p.label)}</span><b>${symbol}${esc(amountDisplay(p.amountText))}</b></button>`).join('')}</div>` : ''}
     <label class="field"><span>Date</span>
       <input class="input" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
     <p class="error" role="alert">${esc(d.error)}</p>
-    ${confirm || `${keypad()}${saveHint(canSave, 'pay')}
+    ${confirm || `${saveHint(canSave, 'pay')}
     <div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="entry-delete" data-fkey="del">Delete</button>` : ''}
-      <button type="button" class="btn" data-action="entry-save" data-fkey="save" ${canSave ? '' : 'disabled'}>${d.mode === 'edit' ? 'Save changes' : `Pay ${symbol}${esc(shown)}`}</button></div>
-    <p class="sheet-note" style="text-align:center">Counts towards the debt, not your spending.</p>`}`;
+      <button type="button" class="btn" data-action="entry-save" data-fkey="save" ${canSave ? '' : 'disabled'}>${d.mode === 'edit' ? 'Save changes' : `Pay ${symbol}${esc(amountDisplay(d.amountText))}`}</button></div>
+    <p class="sheet-note" style="text-align:center;margin:0">Counts towards the debt, not your spending.</p>`}`;
 }
 
 /** @param {EntryDraft} d @param {string} today */
@@ -118,30 +119,27 @@ export function entrySheet(d, today) {
       <p class="sheet-note">Only ${esc(d.author)} can change this entry. If something’s wrong, let them know.</p>`;
   }
   const cats = d.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  const shown = amountDisplay(d.amountText);
   const canSave = Boolean(d.amountText) && Number(d.amountText) > 0;
   const confirm = confirmPanel(d, { discardTitle: 'Discard this entry?', deleteTitle: 'Delete this entry?', deleteAction: 'entry-delete-confirm' });
   return `${header(d.mode === 'edit' ? 'Edit entry' : 'Add an entry')}
     <div class="seg" role="group" aria-label="Type">
       <button type="button" data-action="entry-type" data-value="expense" aria-pressed="${d.type === 'expense'}" data-fkey="t-exp">Expense</button>
       <button type="button" data-action="entry-type" data-value="income" aria-pressed="${d.type === 'income'}" data-fkey="t-inc">Income</button></div>
-    <div class="amount">
-      <button type="button" class="cur-switch" data-action="entry-currency" aria-label="Currency ${d.currency}. Tap to switch" data-fkey="cur">${d.currency} ⇄</button>
-      <output class="figure ${fitClass(shown)} ${d.amountText ? '' : 'placeholder'}" id="amount-out" aria-live="polite" aria-label="Amount ${esc(shown)} ${d.currency}">${esc(shown)}</output></div>
-    <div class="chips scroll" role="group" aria-label="Category">${cats.map((c) => `<button type="button" class="chip" data-action="entry-category" data-value="${esc(c)}" aria-pressed="${d.category === c}" data-fkey="cat-${esc(c)}">${icon(c)}${esc(c)}</button>`).join('')}</div>
-    <div class="panel panel-pad" style="display:grid;gap:4px">
-      <label class="row" style="min-height:48px"><span class="row-title">Date</span>
-        <input class="input quiet" style="max-width:190px" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
-      ${d.type === 'expense' ? `<div class="row" style="min-height:48px"><span class="row-title" id="for-lbl">Who it’s for</span>
-        <div class="seg" role="group" aria-labelledby="for-lbl" style="min-width:190px">
+    <div class="amount">${amountField(d.amountText, d.currency, 'entry-currency')}${saveHint(canSave, 'save')}</div>
+    <div class="panel form-rows">
+      <label class="row"><span class="row-title">Category</span>
+        <select class="input quiet select" name="category" aria-label="Category" data-fkey="cat">${cats.map((c) => `<option value="${esc(c)}" ${d.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="row"><span class="row-title">Date</span>
+        <input class="input quiet" type="date" name="date" max="${today}" value="${esc(d.date)}" data-fkey="date"></label>
+      ${d.type === 'expense' ? `<div class="row"><span class="row-title" id="for-lbl">Who it’s for</span>
+        <div class="seg" role="group" aria-labelledby="for-lbl">
           <button type="button" data-action="entry-scope" data-value="mine" aria-pressed="${d.scope === 'mine'}" data-fkey="s-mine">Personal</button>
           <button type="button" data-action="entry-scope" data-value="shared" aria-pressed="${d.scope === 'shared'}" data-fkey="s-shared">Shared</button></div></div>` : ''}
-      <label class="row" style="min-height:48px"><span class="sr-only">Note</span>
+      <label class="row note-row"><span class="sr-only">Note</span>
         <input class="input quiet" name="note" maxlength="${NOTE_MAX}" placeholder="Add a note (optional)" value="${esc(d.note)}" autocomplete="off" data-fkey="note"></label>
     </div>
     <p class="error" role="alert">${esc(d.error)}</p>
-    ${confirm || `${keypad()}${saveHint(canSave, 'save')}
-    <div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="entry-delete" data-fkey="del">Delete</button>` : ''}
+    ${confirm || `<div class="actions">${d.mode === 'edit' ? `<button type="button" class="btn-soft danger" data-action="entry-delete" data-fkey="del">Delete</button>` : ''}
       <button type="button" class="btn" data-action="entry-save" data-fkey="save" ${canSave ? '' : 'disabled'}>${d.mode === 'edit' ? 'Save changes' : `Save ${d.type}`}</button></div>`}`;
 }
 

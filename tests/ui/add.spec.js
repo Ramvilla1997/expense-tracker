@@ -4,18 +4,18 @@ import { BRO, ME, entry, launch, member, mockState, openAdd, typeAmount } from '
 const fab = (page) => page.getByRole('button', { name: 'Add an expense or income' });
 
 test.describe('Add sheet', () => {
-  test('adds an expense with the keypad in a few taps', async ({ page }) => {
+  test('adds an expense from the native keyboard in a few taps', async ({ page }) => {
     await launch(page, member(), { hash: '#/activity' });
     const sheet = await openAdd(page);
     await expect(sheet.getByRole('heading', { name: 'Add an entry' })).toBeVisible();
     const save = sheet.getByRole('button', { name: 'Save expense' });
     await expect(save).toBeDisabled();
     await typeAmount(page, '12.5');
-    await expect(sheet.locator('#amount-out')).toHaveText('12.5');
-    await sheet.getByRole('button', { name: 'Transport' }).click();
+    await expect(sheet.locator('#amount')).toHaveValue('12.5');
+    await sheet.getByRole('combobox', { name: 'Category' }).selectOption('Transport');
     await sheet.getByRole('button', { name: 'Shared' }).click();
     await sheet.getByPlaceholder('Add a note (optional)').fill('Gas');
-    await expect(sheet.locator('#amount-out')).toHaveText('12.5'); // survives re-render
+    await expect(sheet.locator('#amount')).toHaveValue('12.5'); // survives re-render
     await save.click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole('status').filter({ hasText: 'Saved $12.50' })).toBeVisible();
@@ -26,34 +26,34 @@ test.describe('Add sheet', () => {
     await expect(page.getByRole('region', { name: 'Today' }).getByRole('button', { name: /Gas.*Transport · Shared.*\$12\.50/ })).toBeVisible();
   });
 
-  test('keypad rules: leading zero, one decimal point, two decimals, delete', async ({ page }) => {
+  test('amount rules: leading zero, one decimal point, two decimals, delete', async ({ page }) => {
     await launch(page);
     const sheet = await openAdd(page);
-    const out = sheet.locator('#amount-out');
+    const out = sheet.locator('#amount');
     await typeAmount(page, '0');
-    await expect(out).toHaveText('0');
+    await expect(out).toHaveValue('0');
     await expect(sheet.getByRole('button', { name: 'Save expense' })).toBeDisabled();
     await typeAmount(page, '5');
-    await expect(out).toHaveText('5');
+    await expect(out).toHaveValue('5');
     await typeAmount(page, '..129');
-    await expect(out).toHaveText('5.12');
+    await expect(out).toHaveValue('5.12');
     await typeAmount(page, '<<<');
-    await expect(out).toHaveText('5');
+    await expect(out).toHaveValue('5');
     await typeAmount(page, '<');
-    await expect(out).toHaveText('0');
+    await expect(out).toHaveValue('');
     await typeAmount(page, '.05');
-    await expect(out).toHaveText('0.05');
+    await expect(out).toHaveValue('0.05');
     await expect(sheet.getByRole('button', { name: 'Save expense' })).toBeEnabled();
     await typeAmount(page, '<<<<');
     await typeAmount(page, '1234567');
-    await expect(out).toHaveText('1,234,567');
+    await expect(out).toHaveValue('1234567');
   });
 
   test('a physical keyboard works too', async ({ page }) => {
     await launch(page);
     await openAdd(page);
     await page.keyboard.type('42,7');
-    await expect(page.locator('#amount-out')).toHaveText('42.7');
+    await expect(page.locator('#amount')).toHaveValue('42.7');
     await page.keyboard.press('Backspace');
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog')).toBeHidden();
@@ -73,8 +73,8 @@ test.describe('Add sheet', () => {
     await launch(page, member(), { hash: '#/activity' });
     const sheet = await openAdd(page);
     await sheet.getByRole('button', { name: 'Income' }).click();
-    await expect(sheet.getByRole('button', { name: 'Salary' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(sheet.getByRole('button', { name: 'Transport' })).toHaveCount(0);
+    await expect(sheet.getByRole('combobox', { name: 'Category' })).toHaveValue('Salary');
+    await expect(sheet.getByRole('option', { name: 'Transport' })).toHaveCount(0);
     await expect(sheet.getByText('Who it’s for')).toHaveCount(0);
     await typeAmount(page, '2000');
     await sheet.getByRole('button', { name: 'Save income' }).click();
@@ -116,7 +116,7 @@ test.describe('Add sheet', () => {
     await expect(sheet.getByText('Discard this entry?')).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Keep editing' })).toBeFocused();
     await sheet.getByRole('button', { name: 'Keep editing' }).click();
-    await expect(sheet.locator('#amount-out')).toHaveText('7');
+    await expect(sheet.locator('#amount')).toHaveValue('7');
 
     await page.keyboard.press('Escape');
     await expect(sheet.getByText('Discard this entry?')).toBeVisible();
@@ -174,7 +174,7 @@ test.describe('edit, delete and view', () => {
     await page.getByRole('button', { name: /Groceries/ }).click();
     const sheet = page.getByRole('dialog');
     await expect(sheet.getByRole('heading', { name: 'Edit entry' })).toBeVisible();
-    await expect(sheet.locator('#amount-out')).toHaveText('612');
+    await expect(sheet.locator('#amount')).toHaveValue('612');
     await expect(sheet.getByRole('button', { name: /Currency INR/ })).toBeVisible();
     await typeAmount(page, '<<<7');
     await sheet.getByRole('button', { name: 'Save changes' }).click();

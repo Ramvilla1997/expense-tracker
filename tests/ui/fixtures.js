@@ -56,8 +56,11 @@ export async function openAdd(page) {
 
 /** @param {import('@playwright/test').Page} page @param {string} digits */
 export async function typeAmount(page, digits) {
+  await page.getByRole('dialog').locator('#amount').focus();
+  await page.keyboard.press('End');
   for (const ch of digits) {
-    await page.getByRole('dialog').getByRole('button', { name: ch === '<' ? 'Delete last digit' : ch, exact: true }).click();
+    if (ch === '<') await page.keyboard.press('Backspace');
+    else await page.keyboard.type(ch);
   }
 }
 
