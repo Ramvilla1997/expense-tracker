@@ -12,9 +12,14 @@ import { toCsv } from './core/text.js';
 import * as V from './ui/views.js';
 import { entrySheet, billSheet, debtSheet, amountDisplay, fitClass } from './ui/sheets.js';
 import { esc } from './core/text.js';
+import { buildMonth } from './core/paycheque.js';
+import { visibleDebts } from './core/debts.js';
+import { v2HomeView, v2BillsView, v2DebtsView, v2AddView } from './ui/v2.js';
 
 export const VERSION = '2.2.0';
-const ROUTES = ['home', 'activity', 'shared', 'plan', 'profile'];
+const ROUTES = ['home', 'activity', 'shared', 'plan', 'profile', 'v2', 'v2-bills', 'v2-debts', 'v2-add'];
+const V2_BANK_KEY = 'tally.v2.bank';
+const V2_PLANS_KEY = 'tally.v2.plans';
 const INSTALL_KEY = 'tally.installDismissed';
 const SIGNED_OUT_KEY = 'tally.signedOut';
 const SLOW_MS = 8000;
@@ -54,6 +59,7 @@ export function startApp(backend, options = {}) {
     sheetOpener: null,
     slow: false,
     push: { status: 'checking', busy: false, needsHome: false }, // this phone's reminders
+    v2: { bank: readJson(storage, V2_BANK_KEY), allPlans: readJson(storage, V2_PLANS_KEY) ?? {}, editingBank: false, draft: null },
   };
   let watchersStarted = false;
   /** @type {number|undefined} */
@@ -84,7 +90,7 @@ export function startApp(backend, options = {}) {
   }
 
   function render() {
-    const showTabs = S.phase === 'ready' && S.route !== 'profile';
+    const showTabs = S.phase === 'ready' && S.route !== 'profile' && !S.route.startsWith('v2');
     tabs.hidden = !showTabs;
     root.classList.toggle('no-tabs', !showTabs);
     if (S.phase === 'boot') return set(V.splashView(S.slow));
@@ -98,6 +104,7 @@ export function startApp(backend, options = {}) {
       tabs.innerHTML = V.tabsView(S.route);
       tabs.dataset.route = S.route;
     }
+    if (S.route.startsWith('v2')) return set(v2View());
     if (S.route === 'profile') {
       if (!S.form) S.form = formFromProfile(S.profile);
       if (S.push.status === 'checking') refreshPush();
@@ -134,6 +141,96 @@ export function startApp(backend, options = {}) {
     if (S.phase === 'setup') return;
     render();
     if (S.sheet) renderSheet();
+  }
+
+  // ---------- Tally v2 (#/v2) ----------
+
+  /** What v2 reads: only my own and shared records, all counted as mine. */
+  function v2Data() {
+    const vs = viewState();
+    const me = S.user.email;
+    const mine = (/** @type {any} */ x) => x.by === me || x.scope === 'shared';
+    const month = monthOf(vs.today);
+    const plans = S.v2.allPlans[month] ?? {};
+    const data = { ...vs, entries: S.entries.filter(mine), bills: S.bills.filter(mine), debts: visibleDebts(S.debts, me) };
+    const m = buildMonth({ entries: data.entries, bills: data.bills, debts: data.debts, profile: S.profile, today: vs.today, rate: S.rate.rate,
+      display: S.profile.displayCurrency, bank: S.v2.bank, plans });
+    return { vs: data, v2: { ...S.v2, plans }, m };
+  }
+
+  function v2View() {
+    const { vs, v2, m } = v2Data();
+    if (S.route === 'v2-bills') return v2BillsView(vs, v2, m);
+    if (S.route === 'v2-debts') return v2DebtsView(vs, v2);
+    if (S.route === 'v2-add') { if (!S.v2.draft) S.v2.draft = v2Blank(); return v2AddView(vs, { ...v2, draft: S.v2.draft }, m); }
+    return v2HomeView(vs, v2, m);
+  }
+
+  /** @param {string} [kind] */
+  function v2Blank(kind = 'spend') {
+    return { kind, id: '', amountText: '', currency: S.profile.displayCurrency, category: 'Food', error: '' };
+  }
+
+  /** Fills the draft from a bill or debt item. @param {string} kind @param {string} id */
+  function v2Pick(kind, id) {
+    const { m } = v2Data();
+    const list = kind === 'bill' ? m.billItems : m.debtItemsAll;
+    const item = list.find((/** @type {any} */ i) => i.id === id);
+    const d = S.v2.draft ?? v2Blank(kind);
+    S.v2.draft = { ...d, kind, id, error: '', ...(item ? { amountText: minorToInput(item.amount), currency: item.currency } : {}) };
+  }
+
+  /** @param {string} id @param {any} plan */
+  function v2SetPlan(id, plan) {
+    const month = monthOf(todayIso());
+    const plans = { ...(S.v2.allPlans[month] ?? {}), [id]: plan };
+    S.v2.allPlans = { [month]: plans };
+    writeJson(storage, V2_PLANS_KEY, S.v2.allPlans);
+    render();
+  }
+
+  /** @param {string} text */
+  function v2SaveBank(text) {
+    const value = Number(String(text).replace(/[,\s$₹]/g, ''));
+    if (!Number.isFinite(value)) { toast('Enter your bank balance as a number.'); return; }
+    S.v2.bank = { amount: Math.round(value * 100), currency: S.profile.displayCurrency, date: todayIso(), setAt: Date.now() };
+    S.v2.editingBank = false;
+    writeJson(storage, V2_BANK_KEY, S.v2.bank);
+    render();
+  }
+
+  function v2Save() {
+    const d = S.v2.draft;
+    if (!d) return;
+    const input = /** @type {HTMLInputElement|null} */ (root.querySelector('[name="v2-amount"]'));
+    if (input) d.amountText = input.value;
+    const amount = parseAmount(d.amountText);
+    const today = todayIso();
+    const fail = (/** @type {string} */ message) => { d.error = message; render(); };
+    if (!amount) return fail('Enter an amount.');
+    const base = { amount, currency: d.currency, note: '', scope: 'mine', by: S.user.email, date: today, deleted: false, clientCreatedAt: Date.now() };
+    /** @type {any} */ let data;
+    let done = `Saved ${formatMoney(amount, d.currency)}`;
+    if (d.kind === 'pay') data = { ...base, type: 'income', category: 'Salary' };
+    else if (d.kind === 'spend') data = { ...base, type: 'expense', category: d.category || 'Other' };
+    else if (d.kind === 'debt') {
+      const debt = S.debts.find((/** @type {any} */ x) => x.id === d.id);
+      if (!debt) return fail('Pick a debt.');
+      data = { ...base, type: 'expense', category: DEBT_CATEGORY, debtId: debt.id };
+      done = `Paid ${formatMoney(amount, d.currency)} to ${debt.name}`;
+    } else {
+      const bill = S.bills.find((/** @type {any} */ x) => x.id === d.id);
+      if (!bill) return fail('Pick a bill.');
+      data = { ...base, type: 'expense', category: 'Bills', note: bill.name };
+      done = `${bill.name} paid`;
+      background(backend.markBill(bill.id, payableMonth(bill, today), true), 'Couldn’t mark that bill paid.');
+    }
+    const error = validateDraft({ type: data.type, amount, category: data.category, date: today, note: data.note, scope: 'mine', ...(data.debtId ? { debtId: data.debtId } : {}) }, today);
+    if (error) return fail(error);
+    background(backend.put('entries', backend.newId('entries'), data, true), 'Couldn’t save that.');
+    S.v2.draft = null;
+    toast(done);
+    go('v2');
   }
 
   // ---------- lifecycle ----------
@@ -948,6 +1045,15 @@ export function startApp(backend, options = {}) {
         break;
       }
       case 'export': exportCsv(); break;
+      case 'v2-bank-edit': S.v2.editingBank = !S.v2.editingBank; render(); break;
+      case 'v2-new': S.v2.draft = v2Blank(); go('v2-add'); break;
+      case 'v2-pay': S.v2.draft = v2Blank(String(target.dataset.kind)); v2Pick(String(target.dataset.kind), String(target.dataset.id)); go('v2-add'); break;
+      case 'v2-kind': { const k = String(target.dataset.kind); const prev = S.v2.draft ?? v2Blank(); S.v2.draft = { ...v2Blank(k), currency: prev.currency, amountText: k === prev.kind ? prev.amountText : '' }; render(); break; }
+      case 'v2-pick': v2Pick(S.v2.draft?.kind ?? 'bill', String(target.dataset.id)); render(); break;
+      case 'v2-cat': if (S.v2.draft) { S.v2.draft.category = String(target.dataset.value); render(); } break;
+      case 'v2-cur': if (S.v2.draft) { const i = /** @type {HTMLInputElement|null} */ (root.querySelector('[name="v2-amount"]')); if (i) S.v2.draft.amountText = i.value; S.v2.draft.currency = S.v2.draft.currency === 'CAD' ? 'INR' : 'CAD'; render(); } break;
+      case 'v2-plan': { const id = String(target.dataset.id); const prev = S.v2.allPlans[monthOf(todayIso())]?.[id]; v2SetPlan(id, { kind: target.dataset.kind, amount: prev?.amount }); break; }
+      case 'v2-save': v2Save(); break;
       default: break;
     }
   });
@@ -961,6 +1067,14 @@ export function startApp(backend, options = {}) {
       return;
     }
     if (t.closest('form[data-form="profile"]')) S.formDirty = true;
+    if (t.getAttribute('name') === 'v2-amount' && S.v2.draft) S.v2.draft.amountText = /** @type {HTMLInputElement} */ (t).value;
+  });
+
+  document.addEventListener('change', (ev) => {
+    const t = /** @type {HTMLInputElement} */ (ev.target);
+    if (t.getAttribute('name') !== 'v2-custom') return;
+    const amount = parseAmount(t.value);
+    v2SetPlan(String(t.dataset.id), { kind: 'custom', amount: amount ?? 0 });
   });
 
   document.addEventListener('submit', (ev) => {
@@ -969,6 +1083,7 @@ export function startApp(backend, options = {}) {
     if (form.dataset.form === 'setup') submitProfile(form, true);
     else if (form.dataset.form === 'profile') submitProfile(form, false);
     else if (form.dataset.form === 'bill') saveBill();
+    else if (form.dataset.form === 'v2-bank') v2SaveBank(/** @type {HTMLInputElement} */ (form.elements.namedItem('v2-bank')).value);
     else if (form.dataset.form === 'debt') { if (S.sheet?.readOnly) { closeSheet({ force: true }); } else saveDebt(); }
   });
 
@@ -977,6 +1092,16 @@ export function startApp(backend, options = {}) {
 }
 
 // ---------- helpers ----------
+
+/** @param {Storage|null} storage @param {string} key */
+function readJson(storage, key) {
+  try { return JSON.parse(storage?.getItem(key) ?? 'null'); } catch { return null; }
+}
+
+/** @param {Storage|null} storage @param {string} key @param {any} value */
+function writeJson(storage, key, value) {
+  try { storage?.setItem(key, JSON.stringify(value)); } catch { /* private mode: keeps working for this visit */ }
+}
 
 function routeFromHash() {
   const route = location.hash.replace(/^#\/?/, '').split(/[/?]/)[0];

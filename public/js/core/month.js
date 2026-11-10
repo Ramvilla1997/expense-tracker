@@ -31,6 +31,7 @@ import { convert } from './money.js';
  * @property {Moved[]} received pay and other income received so far
  * @property {Moved[]} paidOut every payment so far: bills, debts, savings
  * @property {Moved[]} spent everyday spending so far
+ * @property {Moved[]} [spentThisMonth] everyday spending for the whole month, for the cap; defaults to `spent`
  * @property {Planned[]} planned unpaid bills, debt payments and savings
  * @property {ExpectedPay[]} expectedPay paycheques still to come
  * @property {number} spendingCap everyday spending planned for the month, in `display`
@@ -62,7 +63,8 @@ export function monthView(input) {
   const spent = sum(input.spent);
   const inHand = input.start + sum(input.received) - paidOut - spent;
 
-  const spendingLeft = Math.max(0, input.spendingCap - spent);
+  const spentForCap = input.spentThisMonth ? sum(input.spentThisMonth) : spent;
+  const spendingLeft = Math.max(0, input.spendingCap - spentForCap);
   const stillPlanned = sum(input.planned) + spendingLeft;
   const monthEnd = inHand + sum(input.expectedPay) - stillPlanned;
 
